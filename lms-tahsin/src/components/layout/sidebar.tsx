@@ -34,31 +34,31 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
-    href: "/admin/pengguna",
+    href: "/admin/users",
     label: "Pengguna",
     icon: Users,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
-    href: "/admin/tarif",
+    href: "/admin/pricing",
     label: "Tarif",
     icon: Wallet,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
-    href: "/guru",
+    href: "/teacher",
     label: "Dashboard",
     icon: LayoutDashboard,
     roles: [RoleName.teacher],
   },
   {
-    href: "/guru/profil",
+    href: "/teacher/profile",
     label: "Profil",
     icon: UserRound,
     roles: [RoleName.teacher],
   },
   {
-    href: "/orangtua",
+    href: "/parent",
     label: "Dashboard",
     icon: LayoutDashboard,
     roles: [RoleName.parent, RoleName.student],
@@ -84,7 +84,7 @@ export function Sidebar({
   const items = NAV_ITEMS.filter((item) => rolesInclude(roles, item.roles));
 
   // Prefix terpanjang yang cocok yang menang, supaya "/admin" tidak ikut
-  // menyala saat pengguna berada di "/admin/pengguna".
+  // menyala saat pengguna berada di "/admin/users".
   const activeHref = items
     .filter(
       (item) =>

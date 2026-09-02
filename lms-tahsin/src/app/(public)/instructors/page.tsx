@@ -63,7 +63,7 @@ export default async function TeacherDirectoryPage() {
                   </span>
                   <div className="space-y-1">
                     <Link
-                      href={`/pengajar/${teacher.userId}`}
+                      href={`/instructors/${teacher.userId}`}
                       className="font-heading text-lg font-semibold text-plum-800 underline-offset-4 hover:underline"
                     >
                       {teacher.user.fullName}

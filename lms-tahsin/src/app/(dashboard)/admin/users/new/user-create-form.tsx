@@ -61,7 +61,7 @@ export function UserCreateForm({ canAssignSuperAdmin }: { canAssignSuperAdmin: b
 
     const created = payload as { data?: { id?: string } };
     router.push(
-      created.data?.id ? `/admin/pengguna/${created.data.id}` : "/admin/pengguna",
+      created.data?.id ? `/admin/users/${created.data.id}` : "/admin/users",
     );
     router.refresh();
   }
@@ -108,7 +108,7 @@ export function UserCreateForm({ canAssignSuperAdmin }: { canAssignSuperAdmin: b
         <Button
           type="button"
           variant="ghost"
-          onClick={() => router.push("/admin/pengguna")}
+          onClick={() => router.push("/admin/users")}
         >
           Batal
         </Button>

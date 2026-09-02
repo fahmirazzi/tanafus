@@ -12,8 +12,8 @@ const PROTECTED_ROUTES: ReadonlyArray<{
   roles: readonly RoleName[];
 }> = [
   { prefix: "/admin", roles: [RoleName.super_admin, RoleName.admin] },
-  { prefix: "/guru", roles: [RoleName.teacher] },
-  { prefix: "/orangtua", roles: [RoleName.parent, RoleName.student] },
+  { prefix: "/teacher", roles: [RoleName.teacher] },
+  { prefix: "/parent", roles: [RoleName.parent, RoleName.student] },
 ];
 
 const AUTH_PAGES = ["/login", "/register"];
@@ -51,8 +51,8 @@ export default auth((req) => {
 export const config = {
   matcher: [
     "/admin/:path*",
-    "/guru/:path*",
-    "/orangtua/:path*",
+    "/teacher/:path*",
+    "/parent/:path*",
     "/login",
     "/register",
   ],

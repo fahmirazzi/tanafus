@@ -17,9 +17,9 @@ export const ROLE_PRIORITY: readonly RoleName[] = [
 export const ROLE_HOME: Record<RoleName, string> = {
   super_admin: "/admin",
   admin: "/admin",
-  teacher: "/guru",
-  parent: "/orangtua",
-  student: "/orangtua",
+  teacher: "/teacher",
+  parent: "/parent",
+  student: "/parent",
 };
 
 export function primaryRole(roles: RoleName[]): RoleName | null {

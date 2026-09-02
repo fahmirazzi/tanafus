@@ -55,7 +55,7 @@ export default async function TeacherProfilePage() {
         </div>
         {profile?.acceptsPrivate ? (
           <Link
-            href={`/pengajar/${teacher.id}`}
+            href={`/instructors/${teacher.id}`}
             className="inline-flex items-center gap-1 text-sm text-plum-700 underline underline-offset-4"
           >
             Lihat halaman publik

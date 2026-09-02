@@ -77,7 +77,7 @@ export default async function UserDetailPage({
     <div className="space-y-6">
       <div className="space-y-2">
         <Link
-          href="/admin/pengguna"
+          href="/admin/users"
           className="inline-flex items-center gap-1 text-sm text-plum-500 hover:text-plum-700"
         >
           <ArrowLeft className="size-4" />
@@ -195,7 +195,7 @@ export default async function UserDetailPage({
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Link
-                          href={`/admin/pengguna/${link.parent.id}`}
+                          href={`/admin/users/${link.parent.id}`}
                           className="font-medium text-plum-800 underline underline-offset-4"
                         >
                           {link.parent.fullName}

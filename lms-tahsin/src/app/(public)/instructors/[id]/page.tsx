@@ -59,7 +59,7 @@ export default async function TeacherPublicPage({ params }: PageParams) {
   return (
     <div className="space-y-6">
       <Link
-        href="/pengajar"
+        href="/instructors"
         className="inline-flex items-center gap-1 text-sm text-plum-500 hover:text-plum-700"
       >
         <ArrowLeft className="size-4" />

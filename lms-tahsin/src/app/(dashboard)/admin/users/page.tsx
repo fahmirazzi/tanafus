@@ -79,7 +79,7 @@ export default async function UsersPage({
     if (query.role) next.set("role", query.role);
     if (query.status) next.set("status", query.status);
     next.set("page", String(page));
-    return `/admin/pengguna?${next.toString()}`;
+    return `/admin/users?${next.toString()}`;
   }
 
   return (
@@ -93,7 +93,7 @@ export default async function UsersPage({
             {total} pengguna terdaftar.
           </p>
         </div>
-        <Button nativeButton={false} render={<Link href="/admin/pengguna/baru" />}>
+        <Button nativeButton={false} render={<Link href="/admin/users/new" />}>
           <Plus data-icon="inline-start" />
           Tambah pengguna
         </Button>
@@ -198,7 +198,7 @@ export default async function UsersPage({
                     </TableCell>
                     <TableCell className="text-right">
                       <Link
-                        href={`/admin/pengguna/${user.id}`}
+                        href={`/admin/users/${user.id}`}
                         className="text-sm text-plum-700 underline underline-offset-4 hover:text-plum-800"
                       >
                         Detail
