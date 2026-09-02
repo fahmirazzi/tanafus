@@ -125,6 +125,12 @@ enum Relation {
   guardian
 }
 
+enum PrivateAssignmentStatus {
+  active
+  paused
+  ended
+}
+
 // ===================== USER & ROLE =====================
 
 model User {
@@ -143,20 +149,24 @@ model User {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  roles                UserRole[]
-  children             ParentStudent[]    @relation("children")
-  parents              ParentStudent[]    @relation("parents")
-  teacherProfile       TeacherProfile?
-  sessionsAsTeacher    Session[]          @relation("SessionTeacher")
-  sessionsAsSubstitute Session[]          @relation("SessionSubstitute")
-  sessionsAsStudent    Session[]          @relation("SessionStudent")
-  enrollments          Enrollment[]
-  notifications        Notification[]
-  customRate           StudentCustomRate?
-  charges              SessionCharge[]
-  invoices             Invoice[]
-  earnings             SessionEarning[]
-  payouts              Payout[]
+  roles                       UserRole[]
+  children                    ParentStudent[]     @relation("children")
+  parents                     ParentStudent[]     @relation("parents")
+  teacherProfile              TeacherProfile?
+  sessionsAsTeacher           Session[]           @relation("SessionTeacher")
+  sessionsAsSubstitute        Session[]           @relation("SessionSubstitute")
+  sessionsAsStudent           Session[]           @relation("SessionStudent")
+  privateAssignmentsAsTeacher PrivateAssignment[] @relation("PrivateAssignmentTeacher")
+  privateAssignmentsAsStudent PrivateAssignment[] @relation("PrivateAssignmentStudent")
+  teacherRequestsAsStudent    TeacherRequest[]    @relation("TeacherRequestStudent")
+  teacherRequestsAsTeacher    TeacherRequest[]    @relation("TeacherRequestTeacher")
+  enrollments                 Enrollment[]
+  notifications               Notification[]
+  customRate                  StudentCustomRate?
+  charges                     SessionCharge[]
+  invoices                    Invoice[]
+  earnings                    SessionEarning[]
+  payouts                     Payout[]
 }
 
 model Role {
@@ -403,8 +413,45 @@ model TeacherRequest {
   preferredTimes     Json? // {mon: ["15:00-17:00"]}
   note               String?
   status             TeacherRequestStatus @default(pending)
-  handledBy          String?
+  rejectReason       String? // wajib diisi saat status = rejected (divalidasi di API)
+  handledBy          String? // id admin/guru yang me-review
+  handledAt          DateTime?
+  assignmentId       String?              @unique // terisi saat status = approved
   createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  student    User               @relation("TeacherRequestStudent", fields: [studentId], references: [id])
+  teacher    User?              @relation("TeacherRequestTeacher", fields: [teacherId], references: [id])
+  assignment PrivateAssignment? @relation(fields: [assignmentId], references: [id])
+
+  @@index([status, teacherId])
+  @@index([studentId, createdAt])
+}
+
+/// Penugasan murid privat ke guru. Dibuat saat TeacherRequest di-approve dan
+/// menjadi sumber kebenaran relasi guru-murid privat SEBELUM ada jadwal
+/// (PRD F-1: murid tetap terdaftar walau recurring schedule ditunda).
+model PrivateAssignment {
+  id        String                  @id @default(uuid())
+  teacherId String
+  studentId String
+  level     String? // level awal murid privat — bebas, tidak terikat course reguler
+  status    PrivateAssignmentStatus @default(active)
+  notes     String?
+  startedAt DateTime                @default(now())
+  endedAt   DateTime?
+  createdBy String? // id admin/guru yang menyetujui
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  teacher User            @relation("PrivateAssignmentTeacher", fields: [teacherId], references: [id])
+  student User            @relation("PrivateAssignmentStudent", fields: [studentId], references: [id])
+  request TeacherRequest?
+
+  // Satu baris per pasangan guru-murid: approve ulang me-reaktifkan baris yang sama.
+  @@unique([teacherId, studentId])
+  @@index([teacherId, status])
+  @@index([studentId, status])
 }
 
 // ===================== PRICING & BILLING =====================
