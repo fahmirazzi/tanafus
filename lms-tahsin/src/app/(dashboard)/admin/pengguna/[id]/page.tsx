@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserEditForm } from "./user-edit-form";
 import { RolesForm } from "./roles-form";
 import { ChildrenManager } from "./children-manager";
+import { TeacherSettingsForm } from "./teacher-settings-form";
 
 export const metadata: Metadata = { title: "Detail Pengguna" };
 
@@ -55,6 +56,13 @@ export default async function UserDetailPage({
           parent: { select: { id: true, fullName: true } },
         },
       },
+      teacherProfile: {
+        select: {
+          revenueSharePct: true,
+          acceptsPrivate: true,
+          acceptingStudents: true,
+        },
+      },
     },
   });
 
@@ -63,6 +71,7 @@ export default async function UserDetailPage({
   const roles = user.roles.map((r) => r.role.name);
   const isParent = roles.includes(RoleName.parent);
   const isStudent = roles.includes(RoleName.student);
+  const isTeacher = roles.includes(RoleName.teacher);
 
   return (
     <div className="space-y-6">
@@ -121,6 +130,29 @@ export default async function UserDetailPage({
           />
         </CardContent>
       </Card>
+
+      {isTeacher ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pengaturan guru</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TeacherSettingsForm
+              userId={user.id}
+              hasProfile={user.teacherProfile !== null}
+              initialRevenueSharePct={
+                user.teacherProfile
+                  ? Number(user.teacherProfile.revenueSharePct)
+                  : 60
+              }
+              acceptsPrivate={user.teacherProfile?.acceptsPrivate ?? false}
+              acceptingStudents={
+                user.teacherProfile?.acceptingStudents ?? false
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {isParent ? (
         <Card>

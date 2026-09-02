@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Relation } from "@/generated/prisma/enums";
 import { RELATION_LABEL } from "@/lib/labels";
-import { FormAlert } from "../profile-fields";
+import { FormAlert } from "@/components/form-feedback";
 
 export type LinkedChild = {
   id: string;

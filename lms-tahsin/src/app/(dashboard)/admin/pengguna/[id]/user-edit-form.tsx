@@ -5,12 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  FieldError,
-  FormAlert,
-  ProfileFields,
-  type ProfileValues,
-} from "../profile-fields";
+import { FieldError, FormAlert } from "@/components/form-feedback";
+import { ProfileFields, type ProfileValues } from "../profile-fields";
 
 export function UserEditForm({
   userId,

@@ -12,6 +12,7 @@ import {
   CalendarDays,
   Wallet,
   Receipt,
+  UserRound,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/guru",
     label: "Dashboard",
     icon: LayoutDashboard,
+    roles: [RoleName.teacher],
+  },
+  {
+    href: "/guru/profil",
+    label: "Profil",
+    icon: UserRound,
     roles: [RoleName.teacher],
   },
   {

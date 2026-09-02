@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { RoleName } from "@/generated/prisma/enums";
-import { FormAlert } from "../profile-fields";
+import { FormAlert } from "@/components/form-feedback";
 import { RoleCheckboxes } from "../role-checkboxes";
 
 export function RolesForm({

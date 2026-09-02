@@ -12,6 +12,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { BillingPreference, Gender } from "@/generated/prisma/enums";
 import { BILLING_LABEL, GENDER_LABEL } from "@/lib/labels";
+import { FieldError } from "@/components/form-feedback";
 
 /** Semua field disimpan sebagai string supaya cocok dengan input HTML. */
 export type ProfileValues = {
@@ -33,27 +34,6 @@ export const emptyProfile: ProfileValues = {
   address: "",
   billingPreference: BillingPreference.per_session,
 };
-
-export function FieldError({ id, message }: { id: string; message?: string }) {
-  if (!message) return null;
-  return (
-    <p id={id} className="text-sm text-destructive">
-      {message}
-    </p>
-  );
-}
-
-export function FormAlert({ message }: { message: string | null }) {
-  if (!message) return null;
-  return (
-    <p
-      role="alert"
-      className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-    >
-      {message}
-    </p>
-  );
-}
 
 /** Grup field profil yang identik antara form tambah dan form ubah pengguna. */
 export function ProfileFields({

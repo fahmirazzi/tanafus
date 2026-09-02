@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RoleName } from "@/generated/prisma/enums";
+import { FieldError, FormAlert } from "@/components/form-feedback";
 import {
-  FieldError,
-  FormAlert,
   ProfileFields,
   emptyProfile,
   type ProfileValues,

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatRupiah } from "@/lib/currency";
-import { FormAlert } from "../pengguna/profile-fields";
+import { FormAlert } from "@/components/form-feedback";
 import type { Tier } from "./tier-manager";
 
 type StudentOption = { id: string; fullName: string; email: string | null };
