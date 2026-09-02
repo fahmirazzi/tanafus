@@ -13,6 +13,7 @@ import {
   Wallet,
   Receipt,
   UserRound,
+  Inbox,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,9 +47,21 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
+    href: "/admin/requests",
+    label: "Permintaan",
+    icon: Inbox,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
     href: "/teacher",
     label: "Dashboard",
     icon: LayoutDashboard,
+    roles: [RoleName.teacher],
+  },
+  {
+    href: "/teacher/requests",
+    label: "Permintaan",
+    icon: Inbox,
     roles: [RoleName.teacher],
   },
   {
@@ -61,6 +74,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/parent",
     label: "Dashboard",
     icon: LayoutDashboard,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
+    href: "/parent/enrollment",
+    label: "Pendaftaran privat",
+    icon: Inbox,
     roles: [RoleName.parent, RoleName.student],
   },
 ];
