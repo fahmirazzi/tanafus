@@ -13,7 +13,7 @@ export default async function AdminDashboardPage() {
       title="Dashboard Admin"
       subtitle={`Selamat datang, ${user.name ?? "Admin"}.`}
       roles={user.roles}
-      note="Modul operasional (verifikasi pembayaran, approval cuti, kelola user) menyusul di Sprint 1."
+      note="Kelola pengguna sudah tersedia di menu Pengguna. Modul tarif, profil guru, dan request guru menyusul."
     />
   );
 }

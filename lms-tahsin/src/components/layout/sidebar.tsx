@@ -32,6 +32,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
+    href: "/admin/pengguna",
+    label: "Pengguna",
+    icon: Users,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
     href: "/guru",
     label: "Dashboard",
     icon: LayoutDashboard,
@@ -47,7 +53,6 @@ const NAV_ITEMS: readonly NavItem[] = [
 
 /** Placeholder menu fase berikutnya — ditampilkan nonaktif agar struktur terlihat. */
 const COMING_SOON: readonly { label: string; icon: typeof Users }[] = [
-  { label: "Murid", icon: Users },
   { label: "Jadwal", icon: CalendarDays },
   { label: "Tagihan", icon: Wallet },
 ];
@@ -63,6 +68,15 @@ export function Sidebar({
   const [open, setOpen] = useState(false);
 
   const items = NAV_ITEMS.filter((item) => rolesInclude(roles, item.roles));
+
+  // Prefix terpanjang yang cocok yang menang, supaya "/admin" tidak ikut
+  // menyala saat pengguna berada di "/admin/pengguna".
+  const activeHref = items
+    .filter(
+      (item) =>
+        pathname === item.href || pathname.startsWith(`${item.href}/`),
+    )
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
     <>
@@ -117,8 +131,7 @@ export function Sidebar({
 
         <nav className="flex-1 space-y-1 px-3">
           {items.map((item) => {
-            const active =
-              pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active = item.href === activeHref;
             return (
               <Link
                 key={item.href}
