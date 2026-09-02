@@ -11,6 +11,7 @@ import {
   Users,
   CalendarDays,
   Wallet,
+  Receipt,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
+    href: "/admin/tarif",
+    label: "Tarif",
+    icon: Wallet,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
     href: "/guru",
     label: "Dashboard",
     icon: LayoutDashboard,
@@ -54,7 +61,7 @@ const NAV_ITEMS: readonly NavItem[] = [
 /** Placeholder menu fase berikutnya — ditampilkan nonaktif agar struktur terlihat. */
 const COMING_SOON: readonly { label: string; icon: typeof Users }[] = [
   { label: "Jadwal", icon: CalendarDays },
-  { label: "Tagihan", icon: Wallet },
+  { label: "Tagihan", icon: Receipt },
 ];
 
 export function Sidebar({

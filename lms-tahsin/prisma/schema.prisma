@@ -194,6 +194,9 @@ model ParentStudent {
   student   User     @relation("children", fields: [studentId], references: [id])
 
   @@id([parentId, studentId])
+  // Primary key hanya mengindeks prefix parentId; pencarian "siapa orang tua
+  // murid ini" (halaman detail murid, ownership guard) butuh index sendiri.
+  @@index([studentId])
 }
 
 model TeacherProfile {
