@@ -38,6 +38,32 @@ export function toProfileData(input: ProfileInput) {
 }
 
 /**
+ * Versi PATCH: HANYA field yang benar-benar dikirim yang ikut ditulis.
+ *
+ * toProfileData memetakan setiap field opsional yang tidak dikirim menjadi
+ * null, yang benar untuk create tapi menghancurkan data pada update parsial
+ * (mis. body hanya berisi fullName + isActive akan mengosongkan nomor HP,
+ * alamat, gender, dan tanggal lahir).
+ */
+export function toProfilePatch(input: ProfileInput) {
+  const full = toProfileData(input);
+  const patch: Partial<ReturnType<typeof toProfileData>> = {
+    fullName: full.fullName,
+  };
+
+  if ("email" in input) patch.email = full.email;
+  if ("phone" in input) patch.phone = full.phone;
+  if ("gender" in input) patch.gender = full.gender;
+  if ("birthDate" in input) patch.birthDate = full.birthDate;
+  if ("address" in input) patch.address = full.address;
+  if (input.billingPreference) {
+    patch.billingPreference = input.billingPreference;
+  }
+
+  return patch;
+}
+
+/**
  * Email dan phone unique di level DB. Dicek lebih dulu supaya pesan errornya
  * per-field, bukan error constraint mentah dari Postgres.
  */

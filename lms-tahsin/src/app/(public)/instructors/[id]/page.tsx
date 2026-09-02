@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { initials } from "@/lib/initials";
@@ -26,7 +27,7 @@ const PUBLIC_SELECT = {
 
 async function getTeacher(id: string) {
   return prisma.teacherProfile.findFirst({
-    where: { userId: id, acceptsPrivate: true, user: { isActive: true } },
+    where: { userId: id, ...PUBLIC_TEACHER_WHERE },
     select: PUBLIC_SELECT,
   });
 }

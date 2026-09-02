@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
+import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { RoleName } from "@/generated/prisma/enums";
 import { loadReviewRequests } from "@/lib/teacher-requests";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,7 @@ export default async function AdminRequestsPage() {
     loadReviewRequests({}),
     // Hanya guru yang benar-benar membuka privat yang boleh ditugaskan (BR-08.3).
     prisma.teacherProfile.findMany({
-      where: { acceptsPrivate: true, user: { isActive: true } },
+      where: PUBLIC_TEACHER_WHERE,
       select: { userId: true, user: { select: { fullName: true } } },
       orderBy: { user: { fullName: "asc" } },
     }),

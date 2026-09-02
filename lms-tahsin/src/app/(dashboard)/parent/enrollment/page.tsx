@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { hasRole, requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
+import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { RoleName } from "@/generated/prisma/enums";
 import { formatPreferredTimes } from "@/lib/teacher-requests";
 import { formatTanggalWIB } from "@/lib/datetime";
@@ -58,7 +59,7 @@ export default async function EnrollmentPage() {
       orderBy: { durationMinutes: "asc" },
     }),
     prisma.teacherProfile.findMany({
-      where: { acceptsPrivate: true, user: { isActive: true } },
+      where: PUBLIC_TEACHER_WHERE,
       select: {
         userId: true,
         acceptingStudents: true,

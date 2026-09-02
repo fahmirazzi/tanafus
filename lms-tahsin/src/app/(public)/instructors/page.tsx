@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { initials } from "@/lib/initials";
@@ -20,7 +21,7 @@ export default async function TeacherDirectoryPage() {
   // Halaman publik: SELECT eksplisit, tidak boleh ada revenueSharePct,
   // email, atau nomor HP yang ikut terbawa.
   const teachers = await prisma.teacherProfile.findMany({
-    where: { acceptsPrivate: true, user: { isActive: true } },
+    where: PUBLIC_TEACHER_WHERE,
     select: {
       userId: true,
       bio: true,

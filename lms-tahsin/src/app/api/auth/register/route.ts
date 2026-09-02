@@ -103,11 +103,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
       await tx.parentStudent.createMany({
-        data: students.map((s, index) => ({
+        // isPrimary = wali utama MURID TERSEBUT, bukan urutan anak. Setiap
+        // anak di sini baru dibuat dan hanya punya satu wali (pendaftar),
+        // jadi semuanya wali utama. Sebelumnya index === 0 membuat anak
+        // kedua dan seterusnya lahir tanpa wali utama sama sekali.
+        data: students.map((s) => ({
           parentId: parent.id,
           studentId: s.id,
           relation,
-          isPrimary: index === 0,
+          isPrimary: true,
         })),
       });
 

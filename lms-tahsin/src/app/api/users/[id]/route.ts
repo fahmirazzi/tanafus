@@ -9,7 +9,7 @@ import {
   assertCanManageTarget,
   countOtherActiveSuperAdmins,
   findIdentityConflicts,
-  toProfileData,
+  toProfilePatch,
 } from "@/lib/users";
 import { updateUserSchema } from "@/lib/validations/user";
 import { RoleName } from "@/generated/prisma/enums";
@@ -99,19 +99,22 @@ export async function PATCH(
     }
 
     const { password, isActive, ...profile } = parsed.data;
-    const data = toProfileData(profile);
+    // Update parsial: field yang tidak dikirim TIDAK ikut ditimpa null.
+    const data = toProfilePatch(profile);
 
     // Login memakai email, jadi akun non-murid tidak boleh kehilangan emailnya.
+    // Hanya diperiksa saat email memang sedang diubah — email yang tidak
+    // dikirim berarti tetap seperti apa adanya.
     const studentOnly = targetRoles.every((r) => r === RoleName.student);
-    if (!studentOnly && !data.email) {
+    if (!studentOnly && "email" in profile && !data.email) {
       return apiError("Data tidak valid", 422, {
         email: "Email wajib diisi untuk role selain murid",
       });
     }
 
     const conflicts = await findIdentityConflicts({
-      email: data.email,
-      phone: data.phone,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
       excludeId: id,
     });
     if (conflicts) return apiError("Data tidak valid", 422, conflicts);

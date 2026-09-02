@@ -78,15 +78,23 @@ export async function POST(
     }
 
     await prisma.$transaction(async (tx) => {
+      // Wali pertama seorang murid SELALU jadi wali utama, walau pemanggil
+      // tidak memintanya — kalau tidak, murid bisa punya wali tapi tanpa
+      // wali utama sama sekali.
+      const existingCount = await tx.parentStudent.count({
+        where: { studentId },
+      });
+      const makePrimary = isPrimary || existingCount === 0;
+
       // Satu murid hanya boleh punya satu wali utama.
-      if (isPrimary) {
+      if (makePrimary) {
         await tx.parentStudent.updateMany({
           where: { studentId },
           data: { isPrimary: false },
         });
       }
       await tx.parentStudent.create({
-        data: { parentId, studentId, relation, isPrimary },
+        data: { parentId, studentId, relation, isPrimary: makePrimary },
       });
     }, TX_OPTIONS);
 

@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   // -------------------------------------------------------- parent linking
   const links = [
     { parentId: ortu1Id, studentId: murid1Id, relation: Relation.father, isPrimary: true },
-    { parentId: ortu1Id, studentId: murid2Id, relation: Relation.father, isPrimary: false },
+    { parentId: ortu1Id, studentId: murid2Id, relation: Relation.father, isPrimary: true },
     { parentId: ortu2Id, studentId: murid3Id, relation: Relation.mother, isPrimary: true },
   ];
   for (const link of links) {
