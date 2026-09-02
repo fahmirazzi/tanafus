@@ -65,6 +65,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.teacher],
   },
   {
+    href: "/teacher/schedule",
+    label: "Jadwal",
+    icon: CalendarDays,
+    roles: [RoleName.teacher],
+  },
+  {
     href: "/teacher/profile",
     label: "Profil",
     icon: UserRound,
@@ -86,7 +92,6 @@ const NAV_ITEMS: readonly NavItem[] = [
 
 /** Placeholder menu fase berikutnya — ditampilkan nonaktif agar struktur terlihat. */
 const COMING_SOON: readonly { label: string; icon: typeof Users }[] = [
-  { label: "Jadwal", icon: CalendarDays },
   { label: "Tagihan", icon: Receipt },
 ];
 

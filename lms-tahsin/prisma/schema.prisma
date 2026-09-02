@@ -150,16 +150,18 @@ model User {
   updatedAt         DateTime          @updatedAt
 
   roles                       UserRole[]
-  children                    ParentStudent[]     @relation("children")
-  parents                     ParentStudent[]     @relation("parents")
+  children                    ParentStudent[]            @relation("children")
+  parents                     ParentStudent[]            @relation("parents")
   teacherProfile              TeacherProfile?
-  sessionsAsTeacher           Session[]           @relation("SessionTeacher")
-  sessionsAsSubstitute        Session[]           @relation("SessionSubstitute")
-  sessionsAsStudent           Session[]           @relation("SessionStudent")
-  privateAssignmentsAsTeacher PrivateAssignment[] @relation("PrivateAssignmentTeacher")
-  privateAssignmentsAsStudent PrivateAssignment[] @relation("PrivateAssignmentStudent")
-  teacherRequestsAsStudent    TeacherRequest[]    @relation("TeacherRequestStudent")
-  teacherRequestsAsTeacher    TeacherRequest[]    @relation("TeacherRequestTeacher")
+  sessionsAsTeacher           Session[]                  @relation("SessionTeacher")
+  sessionsAsSubstitute        Session[]                  @relation("SessionSubstitute")
+  sessionsAsStudent           Session[]                  @relation("SessionStudent")
+  privateAssignmentsAsTeacher PrivateAssignment[]        @relation("PrivateAssignmentTeacher")
+  privateAssignmentsAsStudent PrivateAssignment[]        @relation("PrivateAssignmentStudent")
+  teacherRequestsAsStudent    TeacherRequest[]           @relation("TeacherRequestStudent")
+  teacherRequestsAsTeacher    TeacherRequest[]           @relation("TeacherRequestTeacher")
+  recurringSchedulesAsTeacher PrivateRecurringSchedule[] @relation("RecurringScheduleTeacher")
+  recurringSchedulesAsStudent PrivateRecurringSchedule[] @relation("RecurringScheduleStudent")
   enrollments                 Enrollment[]
   notifications               Notification[]
   customRate                  StudentCustomRate?
@@ -368,8 +370,15 @@ model PrivateRecurringSchedule {
   isActive        Boolean   @default(true)
   effectiveFrom   DateTime? @db.Date
   effectiveUntil  DateTime? @db.Date
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  teacher User @relation("RecurringScheduleTeacher", fields: [teacherId], references: [id])
+  student User @relation("RecurringScheduleStudent", fields: [studentId], references: [id])
 
   @@unique([teacherId, studentId, dayOfWeek, startTime])
+  @@index([teacherId, isActive])
+  @@index([studentId, isActive])
 }
 
 model StudentBreak {
