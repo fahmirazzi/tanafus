@@ -14,11 +14,14 @@ import { prisma } from "@/lib/prisma";
 import { formatRupiah } from "@/lib/currency";
 import { formatTanggalWIB } from "@/lib/datetime";
 import { INVOICE_STATUS_LABEL } from "@/lib/invoices";
+import { zonedDateKey, zonedDateTimeToUtc } from "@/lib/sessions";
+import { OCCUPYING_STATUSES } from "@/lib/validations/session";
 import {
   EarningStatus,
   InvoiceStatus,
   PayoutStatus,
   RoleName,
+  SessionType,
   SimpleApprovalStatus,
   TeacherRequestStatus,
 } from "@/generated/prisma/enums";
@@ -33,15 +36,20 @@ export const metadata: Metadata = { title: "Dashboard Admin" };
  *
  * Isinya dibatasi pada hal yang MENAHAN pekerjaan orang lain: antrean yang
  * menunggu keputusan admin, tunggakan yang menunggu ditagih, dan murid yang
- * terhenti karenanya. Angka-angka yang sekadar menarik dilihat — total omzet,
- * jumlah sesi bulan ini — sengaja tidak ditaruh di sini; tempatnya nanti di
- * laporan, bukan di layar yang dibuka untuk tahu "apa yang harus saya
- * kerjakan pagi ini".
+ * terhenti karenanya. Angka sekadar-menarik — total omzet, tren bulanan —
+ * sengaja tidak ditaruh di sini; tempatnya nanti di laporan. "Sesi hari
+ * ini" satu-satunya pengecualian: PRD memintanya eksplisit, dan cukup satu
+ * angka di subjudul, bukan kartu sendiri, supaya antrean tetap yang utama.
  */
 export default async function AdminDashboardPage() {
   const user = await requireRole(RoleName.super_admin, RoleName.admin);
 
+  const todayKey = zonedDateKey(new Date());
+  const todayStart = zonedDateTimeToUtc(todayKey, "00:00");
+  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+
   const [
+    sessionsToday,
     teacherRequests,
     studentBreaks,
     payoutRequests,
@@ -50,6 +58,13 @@ export default async function AdminDashboardPage() {
     overdueInvoices,
     suspendedStudents,
   ] = await Promise.all([
+    prisma.session.count({
+      where: {
+        type: SessionType.private,
+        status: { in: OCCUPYING_STATUSES },
+        scheduledAt: { gte: todayStart, lt: todayEnd },
+      },
+    }),
     prisma.teacherRequest.count({
       where: { status: TeacherRequestStatus.pending },
     }),
@@ -128,7 +143,8 @@ export default async function AdminDashboardPage() {
         </h1>
         <p className="text-sm text-plum-500">
           Selamat datang, {user.name ?? "Admin"}. Hari ini{" "}
-          {formatTanggalWIB(new Date())} (WIB).
+          {formatTanggalWIB(new Date())} (WIB) · {sessionsToday} sesi privat
+          berjalan hari ini.
         </p>
       </div>
 

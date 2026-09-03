@@ -1,6 +1,11 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client.ts";
-import { Gender, Relation, RoleName } from "../src/generated/prisma/enums.ts";
+import {
+  Gender,
+  PrivateAssignmentStatus,
+  Relation,
+  RoleName,
+} from "../src/generated/prisma/enums.ts";
 
 const prisma = new PrismaClient();
 
@@ -196,6 +201,54 @@ async function main(): Promise<void> {
     });
   }
 
+  // ---------------------------------------------- penugasan & jadwal privat
+  //
+  // Tanpa ini, demo pertama kali login sebagai guru/orang tua menampilkan
+  // layar kosong di mana-mana — "Belum ada murid privat", kalender tanpa
+  // sesi. Jadwal berulang di sini yang membuat cron generator (item 11)
+  // dan kalender mingguan langsung punya sesuatu untuk ditampilkan begitu
+  // cron pertama berjalan, tanpa perlu klik apa pun secara manual.
+  const assignments: { teacherId: string; studentId: string; level: string }[] = [
+    { teacherId: guru1Id, studentId: murid1Id, level: "Tahsin 1" },
+    { teacherId: guru1Id, studentId: murid2Id, level: "Tahsin 2" },
+    { teacherId: guru2Id, studentId: murid3Id, level: "Tahsin 1" },
+  ];
+  for (const a of assignments) {
+    await prisma.privateAssignment.upsert({
+      where: { teacherId_studentId: { teacherId: a.teacherId, studentId: a.studentId } },
+      update: { status: PrivateAssignmentStatus.active, level: a.level },
+      create: { ...a, status: PrivateAssignmentStatus.active },
+    });
+  }
+
+  // Tiga hari kerja berbeda supaya kalender mingguan demo tidak menumpuk
+  // di satu hari saja. dayOfWeek: 0=Minggu .. 6=Sabtu.
+  const schedules: {
+    teacherId: string;
+    studentId: string;
+    dayOfWeek: number;
+    startTime: string;
+    durationMinutes: number;
+  }[] = [
+    { teacherId: guru1Id, studentId: murid1Id, dayOfWeek: 1, startTime: "16:00", durationMinutes: 60 },
+    { teacherId: guru1Id, studentId: murid2Id, dayOfWeek: 3, startTime: "16:00", durationMinutes: 30 },
+    { teacherId: guru2Id, studentId: murid3Id, dayOfWeek: 5, startTime: "09:00", durationMinutes: 45 },
+  ];
+  for (const s of schedules) {
+    await prisma.privateRecurringSchedule.upsert({
+      where: {
+        teacherId_studentId_dayOfWeek_startTime: {
+          teacherId: s.teacherId,
+          studentId: s.studentId,
+          dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
+        },
+      },
+      update: { durationMinutes: s.durationMinutes, isActive: true },
+      create: { ...s, isActive: true },
+    });
+  }
+
   console.log("Seed selesai.");
   console.log(`Semua akun memakai kata sandi: ${SEED_PASSWORD}`);
   console.table([
@@ -209,6 +262,11 @@ async function main(): Promise<void> {
     { email: "murid2@tanafus.test", role: "student" },
     { email: "murid3@tanafus.test", role: "student" },
   ]);
+  console.log(
+    "\nBelum ada sesi konkret — jalankan generator sekali untuk mengisi kalender:\n" +
+      'curl -X POST http://localhost:3000/api/cron/generate-sessions -H "Authorization: Bearer $CRON_SECRET"\n' +
+      "(di produksi, Vercel Cron menjalankannya sendiri tiap malam — lihat vercel.json).",
+  );
 }
 
 main()
