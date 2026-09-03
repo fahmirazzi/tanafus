@@ -125,6 +125,11 @@ enum Relation {
   guardian
 }
 
+enum ReminderKind {
+  h1 // satu jam sebelum sesi
+  m5 // lima menit sebelum sesi
+}
+
 enum PrivateAssignmentStatus {
   active
   paused
@@ -303,6 +308,7 @@ model Session {
   charge             SessionCharge?
   earning            SessionEarning?
   rescheduleRequests RescheduleRequest[]
+  reminders          SessionReminder[]
 
   // Idempotensi generator (PRD F-2a): satu murid tidak mungkin punya dua
   // sesi pada instan yang sama, jadi aturannya ditegakkan di level DB,
@@ -363,6 +369,20 @@ model SessionFeedback {
   audioNoteUrl String?
   createdAt    DateTime @default(now())
   session      Session  @relation(fields: [sessionId], references: [id])
+}
+
+/// Catatan bahwa satu pengingat sudah dikirim. Unique (sessionId, kind)
+/// membuat pengiriman ganda mustahil di level DB, bukan hanya lewat
+/// pengecekan sebelum insert — cron pengingat berjalan tiap beberapa menit
+/// dan dua eksekusi bisa saja bertumpuk.
+model SessionReminder {
+  id        String       @id @default(uuid())
+  sessionId String
+  kind      ReminderKind
+  sentAt    DateTime     @default(now())
+  session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, kind])
 }
 
 // ===================== PRIVATE SCHEDULING =====================
