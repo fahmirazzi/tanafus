@@ -10,6 +10,7 @@ import {
   Menu,
   Users,
   CalendarDays,
+  CalendarClock,
   Wallet,
   Receipt,
   UserRound,
@@ -62,6 +63,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/teacher/requests",
     label: "Permintaan",
     icon: Inbox,
+    roles: [RoleName.teacher],
+  },
+  {
+    href: "/teacher/sessions",
+    label: "Sesi",
+    icon: CalendarClock,
     roles: [RoleName.teacher],
   },
   {
