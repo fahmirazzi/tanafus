@@ -9,6 +9,7 @@ import {
 import {
   createNotifications,
   getStudentAudienceIds,
+  sendEventEmail,
 } from "@/lib/notifications";
 import { addDaysToKey, zonedDateKey } from "@/lib/sessions";
 import { InvoiceStatus } from "@/generated/prisma/enums";
@@ -26,6 +27,20 @@ import { InvoiceStatus } from "@/generated/prisma/enums";
 /** Tanggal kalender WIB sebagai nilai kolom @db.Date. */
 function dateOnly(dateKey: string): Date {
   return new Date(`${dateKey}T00:00:00.000Z`);
+}
+
+/** Judul + isi notifikasi "tagihan terlambat" — dipakai untuk baris in-app
+ * maupun email, supaya keduanya tidak pernah berbeda kata. */
+function overdueNotice(invoice: {
+  invoiceNumber: string;
+  dueDate: Date;
+  total: unknown;
+}): { title: string; body: string } {
+  const title = `Tagihan ${invoice.invoiceNumber} terlambat`;
+  return {
+    title,
+    body: `Jatuh tempo ${formatTanggalWIB(invoice.dueDate)}, sebesar ${formatRupiah(Number(invoice.total))}. Mohon segera diselesaikan agar sesi tidak terhenti.`,
+  };
 }
 
 export type OverdueSummary = {
@@ -69,7 +84,11 @@ export async function runOverdueSweep(
 
   for (const invoice of due) {
     try {
-      await prisma.$transaction(async (tx) => {
+      // Transaksi mengembalikan audiens hanya bila update-nya benar-benar
+      // terjadi (null = sudah ditangani proses lain, lihat komentar di
+      // dalam). Dipakai di luar untuk mengirim email SETELAH commit — lihat
+      // catatan di sendEventEmail kenapa tidak dari dalam transaksi.
+      const audience = await prisma.$transaction(async (tx) => {
         // Status disaring ulang di dalam transaksi: pembayaran bisa saja
         // masuk antara pembacaan daftar dan pemrosesan baris ini, dan
         // invoice yang sudah lunas tidak boleh berubah jadi terlambat.
@@ -80,7 +99,7 @@ export async function runOverdueSweep(
           },
           data: { status: InvoiceStatus.overdue },
         });
-        if (updated.count === 0) return;
+        if (updated.count === 0) return null;
 
         await writeAudit(tx, {
           actorId,
@@ -92,16 +111,23 @@ export async function runOverdueSweep(
         });
 
         const audience = await getStudentAudienceIds(invoice.studentId, tx);
+        const notice = overdueNotice(invoice);
         await createNotifications(tx, {
           userIds: audience,
           type: "invoice_overdue",
-          title: `Tagihan ${invoice.invoiceNumber} terlambat`,
-          body: `Jatuh tempo ${formatTanggalWIB(invoice.dueDate)}, sebesar ${formatRupiah(Number(invoice.total))}. Mohon segera diselesaikan agar sesi tidak terhenti.`,
+          title: notice.title,
+          body: notice.body,
           data: { invoiceId: invoice.id },
         });
 
-        summary.markedOverdue += 1;
+        return audience;
       }, TX_OPTIONS);
+
+      if (audience) {
+        summary.markedOverdue += 1;
+        const notice = overdueNotice(invoice);
+        await sendEventEmail(audience, { subject: notice.title, ...notice });
+      }
     } catch (error) {
       summary.failures += 1;
       console.error(

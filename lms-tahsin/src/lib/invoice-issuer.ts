@@ -10,6 +10,7 @@ import {
 import {
   createNotifications,
   getStudentAudienceIds,
+  sendEventEmail,
 } from "@/lib/notifications";
 import { zonedDateKey, zonedDateTimeToUtc } from "@/lib/sessions";
 import { ChargeStatus, InvoiceStatus } from "@/generated/prisma/enums";
@@ -52,6 +53,8 @@ async function nextInvoiceSequence(tx: Tx): Promise<bigint> {
 export type IssuedInvoice = {
   id: string;
   invoiceNumber: string;
+  studentId: string;
+  dueDate: Date;
   total: number;
   itemCount: number;
 };
@@ -161,8 +164,26 @@ export async function issueInvoice(
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
+    studentId: params.studentId,
+    dueDate: invoice.dueDate,
     total: subtotal,
     itemCount: items.length,
+  };
+}
+
+/** Judul + isi email "invoice terbit" — sama persis dengan notifikasi
+ * in-app di atas, dipakai pemanggil issueInvoice SETELAH transaksinya
+ * commit (lihat catatan di sendEventEmail kenapa tidak dari dalam sini). */
+export function invoiceIssuedEmailContent(invoice: IssuedInvoice): {
+  subject: string;
+  title: string;
+  body: string;
+} {
+  const subject = `Tagihan ${invoice.invoiceNumber}`;
+  return {
+    subject,
+    title: subject,
+    body: `${invoice.itemCount} sesi, total ${formatRupiah(invoice.total)}. Jatuh tempo ${formatTanggalWIB(invoice.dueDate)}.`,
   };
 }
 
@@ -243,6 +264,11 @@ export async function runMonthlyBundle(
       if (issued) {
         summary.invoicesCreated += 1;
         summary.totalAmount += issued.total;
+
+        // BR-09: invoice terbit wajib lewat email juga. Dikirim di sini,
+        // di luar $transaction di atas, karena tx-nya sudah commit.
+        const audience = await getStudentAudienceIds(issued.studentId);
+        await sendEventEmail(audience, invoiceIssuedEmailContent(issued));
       }
     } catch (error) {
       summary.failures += 1;

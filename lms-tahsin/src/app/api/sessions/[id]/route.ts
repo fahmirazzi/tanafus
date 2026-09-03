@@ -12,6 +12,7 @@ import {
 import {
   createNotifications,
   getStudentAudienceIds,
+  sendEventEmail,
 } from "@/lib/notifications";
 import { formatTanggalJamWIB } from "@/lib/datetime";
 import { TX_OPTIONS } from "@/lib/users";
@@ -182,6 +183,14 @@ export async function PATCH(
       }
       throw error;
     }
+
+    // BR-09: pindah jadwal wajib lewat email juga. Dikirim setelah transaksi
+    // di atas commit — lihat catatan di sendEventEmail.
+    await sendEventEmail(audience, {
+      subject: "Jadwal sesi dipindah",
+      title: "Jadwal sesi dipindah",
+      body: `Sesi ${studentName} yang semula ${waktuLama} dipindah ke ${waktuBaru}.`,
+    });
 
     return apiOk({ id, scheduledAt, durationMinutes });
   } catch (error) {

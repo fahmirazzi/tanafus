@@ -9,10 +9,11 @@ import {
 } from "@/lib/auth-guard";
 import { writeAudit } from "@/lib/audit";
 import { computeEarning, resolveSessionAmount } from "@/lib/billing";
-import { issueInvoice } from "@/lib/invoice-issuer";
+import { invoiceIssuedEmailContent, issueInvoice } from "@/lib/invoice-issuer";
 import {
   createNotifications,
   getStudentAudienceIds,
+  sendEventEmail,
 } from "@/lib/notifications";
 import { formatTanggalJamWIB } from "@/lib/datetime";
 import {
@@ -265,6 +266,20 @@ export async function POST(
 
       return { chargeCreated, earningCreated, invoice };
     }, TX_OPTIONS);
+
+    // BR-09: sesi diliburkan guru dan invoice yang baru terbit wajib lewat
+    // email juga, dikirim di sini karena transaksi di atas sudah commit —
+    // lihat catatan di sendEventEmail kenapa tidak dari dalam transaksi.
+    if (action === "cancel_teacher") {
+      await sendEventEmail(audience, {
+        subject: "Sesi diliburkan",
+        title: "Sesi diliburkan",
+        body: `Sesi ${studentName} pada ${waktu} diliburkan guru. Tidak ada tagihan untuk sesi ini.`,
+      });
+    }
+    if (result.invoice) {
+      await sendEventEmail(audience, invoiceIssuedEmailContent(result.invoice));
+    }
 
     return apiOk({
       id,

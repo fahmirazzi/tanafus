@@ -10,6 +10,7 @@ import {
 import {
   createNotifications,
   getStudentAudienceIds,
+  sendEventEmail,
 } from "@/lib/notifications";
 import { formatTanggalWIB } from "@/lib/datetime";
 import { PRIVATE_CRITERION_SCOPES } from "@/lib/feedback";
@@ -166,6 +167,14 @@ export async function POST(
         data: { sessionId: id, studentId },
       });
     }, TX_OPTIONS);
+
+    // BR-09: feedback baru wajib lewat email juga, dikirim setelah transaksi
+    // di atas commit — lihat catatan di sendEventEmail.
+    await sendEventEmail(audience, {
+      subject: "Feedback sesi baru",
+      title: "Feedback sesi baru",
+      body: `Penilaian sesi ${formatTanggalWIB(session.scheduledAt)} sudah tersedia.`,
+    });
 
     return apiOk({ sessionId: id, criteriaScored: grades.length });
   } catch (error) {
