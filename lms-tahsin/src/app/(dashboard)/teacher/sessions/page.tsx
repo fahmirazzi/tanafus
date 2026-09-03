@@ -14,13 +14,11 @@ import {
   zonedDateKey,
   zonedDateTimeToUtc,
 } from "@/lib/sessions";
-import { formatJamWIB, formatTanggalWIB } from "@/lib/datetime";
-import { SESSION_STATUS_LABEL } from "@/lib/validations/session";
-import { DAY_OF_WEEK_LABEL } from "@/lib/validations/schedule";
-import { Badge } from "@/components/ui/badge";
+import { formatTanggalWIB, toTimeInputWIB } from "@/lib/datetime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OneTimeSessionForm } from "./one-time-session-form";
+import { WeekBoard, type BoardSession } from "./week-board";
 
 export const metadata: Metadata = { title: "Sesi Mingguan" };
 
@@ -84,13 +82,22 @@ export default async function TeacherSessionsPage({
     }),
   ]);
 
-  const byDay = new Map<string, typeof sessions>();
-  for (const session of sessions) {
-    const key = zonedDateKey(session.scheduledAt);
-    const list = byDay.get(key) ?? [];
-    list.push(session);
-    byDay.set(key, list);
-  }
+  // Date dan Decimal tidak bisa menyeberang ke client component apa adanya,
+  // jadi jam sudah diformat WIB di server.
+  const board: BoardSession[] = sessions.map((session) => ({
+    id: session.id,
+    dateKey: zonedDateKey(session.scheduledAt),
+    startTime: toTimeInputWIB(session.scheduledAt),
+    endTime: toTimeInputWIB(
+      new Date(
+        session.scheduledAt.getTime() + session.durationMinutes * 60_000,
+      ),
+    ),
+    durationMinutes: session.durationMinutes,
+    studentName: session.student?.fullName ?? "—",
+    status: session.status,
+    notes: session.notes,
+  }));
 
   const prevWeek = addDaysToKey(days[0], -7);
   const nextWeek = addDaysToKey(days[0], 7);
@@ -137,56 +144,7 @@ export default async function TeacherSessionsPage({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {days.map((day) => {
-          const list = byDay.get(day) ?? [];
-          const dow = new Date(`${day}T12:00:00.000Z`).getUTCDay();
-          return (
-            <Card key={day} className={day === todayKey ? "border-plum-700" : ""}>
-              <CardHeader>
-                <CardTitle className="text-sm">
-                  {DAY_OF_WEEK_LABEL[dow]}
-                  <span className="block text-xs font-normal text-plum-500">
-                    {day}
-                    {day === todayKey ? " · hari ini" : ""}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {list.length === 0 ? (
-                  <p className="text-xs text-plum-500">Tidak ada sesi.</p>
-                ) : (
-                  list.map((session) => (
-                    <div
-                      key={session.id}
-                      className="space-y-1 rounded-md border border-border p-2"
-                    >
-                      <p className="text-sm font-medium text-plum-800">
-                        {formatJamWIB(session.scheduledAt)}–
-                        {formatJamWIB(
-                          new Date(
-                            session.scheduledAt.getTime() +
-                              session.durationMinutes * 60_000,
-                          ),
-                        )}
-                      </p>
-                      <p className="text-xs text-plum-700">
-                        {session.student?.fullName ?? "—"}
-                      </p>
-                      <Badge variant="secondary">
-                        {SESSION_STATUS_LABEL[session.status]}
-                      </Badge>
-                      {session.notes ? (
-                        <p className="text-xs text-plum-500">{session.notes}</p>
-                      ) : null}
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      <WeekBoard days={days} sessions={board} todayKey={todayKey} />
 
       <Card>
         <CardHeader>

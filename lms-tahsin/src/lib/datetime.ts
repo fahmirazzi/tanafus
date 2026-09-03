@@ -46,3 +46,22 @@ export function toDateInputWIB(date: Date): string {
     parts.find((p) => p.type === type)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
+
+/**
+ * 16:00 — untuk value input[type=time], tetap dalam jam WIB.
+ *
+ * Beda dari formatJamWIB yang memakai gaya Indonesia ("16.00") dan tidak
+ * bisa dipakai sebagai value input.
+ */
+export function toTimeInputWIB(date: Date): string {
+  const parts = fmt({
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((p) => p.type === type)?.value ?? "00";
+  // Sebagian runtime melaporkan jam 24 untuk tengah malam.
+  const hour = String(Number(get("hour")) % 24).padStart(2, "0");
+  return `${hour}:${get("minute")}`;
+}

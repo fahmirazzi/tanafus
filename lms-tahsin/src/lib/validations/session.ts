@@ -59,3 +59,23 @@ export const sessionListQuerySchema = z.object({
   to: z.iso.date("Format tanggal tidak valid").optional(),
   studentId: z.union([z.uuid(), z.literal("")]).optional(),
 });
+
+/**
+ * Pindah jadwal sesi (PRD F-2, item 12). Durasi opsional: memindahkan sesi
+ * biasanya hanya menggeser waktu, bukan mengubah panjang belajarnya.
+ */
+export const rescheduleSessionSchema = z.object({
+  date: z.iso.date("Format tanggal tidak valid"),
+  startTime: z
+    .string()
+    .trim()
+    .regex(TIME_OF_DAY, "Jam mulai harus format 16:00"),
+  durationMinutes: z.coerce
+    .number()
+    .int()
+    .min(15, "Durasi minimal 15 menit")
+    .max(240, "Durasi maksimal 240 menit")
+    .optional(),
+});
+
+export type RescheduleSessionInput = z.infer<typeof rescheduleSessionSchema>;
