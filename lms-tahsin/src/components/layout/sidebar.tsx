@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Wallet,
   Receipt,
+  HandCoins,
   UserRound,
   Inbox,
   X,
@@ -66,6 +67,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
+    href: "/admin/payouts",
+    label: "Upah & payout",
+    icon: HandCoins,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
     href: "/teacher",
     label: "Dashboard",
     icon: LayoutDashboard,
@@ -99,6 +106,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/teacher/breaks",
     label: "Libur murid",
     icon: CalendarOff,
+    roles: [RoleName.teacher],
+  },
+  {
+    href: "/teacher/earnings",
+    label: "Upah saya",
+    icon: HandCoins,
     roles: [RoleName.teacher],
   },
   {

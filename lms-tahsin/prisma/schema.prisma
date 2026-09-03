@@ -646,6 +646,11 @@ model SessionEarning {
   session     Session       @relation(fields: [sessionId], references: [id])
   teacher     User          @relation(fields: [teacherId], references: [id])
   payoutItems PayoutItem[]
+
+  /// Halaman upah guru dan antrean persetujuan admin sama-sama menyaring
+  /// upah per guru dan per status; itulah bentuk indeks ini.
+  @@index([teacherId, status])
+  @@index([status, createdAt])
 }
 
 model Payout {
@@ -653,10 +658,20 @@ model Payout {
   teacherId   String
   totalAmount Decimal      @db.Decimal(12, 2)
   status      PayoutStatus @default(requested)
+
+  /// Catatan admin atas keputusannya. Wajib saat menolak, karena guru
+  /// berhak tahu alasan pengajuannya tidak diproses.
+  note        String?
+  requestedAt DateTime  @default(now())
+  decidedAt   DateTime?
   paidAt      DateTime?
   processedBy String?
-  teacher     User         @relation(fields: [teacherId], references: [id])
-  items       PayoutItem[]
+
+  teacher User         @relation(fields: [teacherId], references: [id])
+  items   PayoutItem[]
+
+  @@index([teacherId, status])
+  @@index([status, requestedAt])
 }
 
 model PayoutItem {
@@ -665,6 +680,8 @@ model PayoutItem {
   sessionEarningId String         @unique
   payout           Payout         @relation(fields: [payoutId], references: [id], onDelete: Cascade)
   sessionEarning   SessionEarning @relation(fields: [sessionEarningId], references: [id])
+
+  @@index([payoutId])
 }
 
 // ===================== NOTIFICATION & AUDIT =====================
