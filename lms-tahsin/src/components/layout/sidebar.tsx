@@ -18,6 +18,7 @@ import {
   Wallet,
   Receipt,
   HandCoins,
+  FileSpreadsheet,
   UserRound,
   Inbox,
   X,
@@ -70,6 +71,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/admin/payouts",
     label: "Upah & payout",
     icon: HandCoins,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/reports",
+    label: "Laporan",
+    icon: FileSpreadsheet,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
