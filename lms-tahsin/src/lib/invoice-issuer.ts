@@ -12,11 +12,7 @@ import {
   getStudentAudienceIds,
 } from "@/lib/notifications";
 import { zonedDateKey, zonedDateTimeToUtc } from "@/lib/sessions";
-import {
-  BillingPreference,
-  ChargeStatus,
-  InvoiceStatus,
-} from "@/generated/prisma/enums";
+import { ChargeStatus, InvoiceStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -183,12 +179,21 @@ export type BundleSummary = {
 
 /**
  * Cron tanggal 1: satu invoice per murid berisi seluruh charge bulan lalu
- * (BR-04.3b).
+ * (BR-04.3b), sekaligus penyapu charge yang tertinggal.
  *
  * Batasnya adalah awal bulan berjalan, bukan "bulan lalu" secara harfiah.
  * Bedanya terasa ketika sebuah jalan cron terlewat: dengan batas awal bulan,
  * charge dua bulan lalu yang tertinggal ikut tertagih pada jalan berikutnya
  * alih-alih menggantung selamanya.
+ *
+ * Murid per_session sengaja ikut disapu, meski BR-04.3a menagihnya seketika
+ * saat sesi ditutup. Ada satu jalan yang meninggalkan charge menggantung:
+ * invoice yang di-void mengembalikan charge-nya ke `pending`, dan bagi murid
+ * per_session tidak ada peristiwa berikutnya yang akan menagihnya lagi —
+ * sesinya sudah lama ditutup. Membatasi sapuan ini hanya pada murid bundel
+ * berarti sesi yang benar-benar terjadi diam-diam hilang dari tagihan.
+ * Batas "lebih tua dari bulan berjalan" menjaga jalur normal per_session
+ * tidak tersentuh: charge bulan ini sudah punya invoicenya sendiri.
  *
  * Tiap murid diproses dalam transaksinya sendiri supaya satu murid yang
  * bermasalah tidak membatalkan tagihan murid lain.
@@ -204,7 +209,6 @@ export async function runMonthlyBundle(
 
   const students = await prisma.user.findMany({
     where: {
-      billingPreference: BillingPreference.monthly_bundle,
       charges: {
         some: {
           status: ChargeStatus.pending,
