@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SessionStatus } from "@/generated/prisma/enums";
+import { SESSION_ACTIONS, type SessionAction } from "@/lib/session-actions";
 
 /**
  * Status yang masih "menduduki" slot waktu. Sesi yang dibatalkan atau
@@ -79,3 +80,23 @@ export const rescheduleSessionSchema = z.object({
 });
 
 export type RescheduleSessionInput = z.infer<typeof rescheduleSessionSchema>;
+
+/**
+ * Aksi status sesi oleh guru (PRD F-3a, roadmap item 16).
+ *
+ * Daftar aksinya diambil dari session-actions.ts supaya tidak ada dua
+ * sumber kebenaran: menambah aksi di sana otomatis diterima di sini.
+ */
+export const sessionActionSchema = z.object({
+  action: z.enum(SESSION_ACTIONS as [SessionAction, ...SessionAction[]]),
+  // Catatan materi (PRD F-3d) boleh ikut dikirim bersama aksi, supaya guru
+  // tidak perlu menyimpan dua kali setelah mengajar.
+  notes: z
+    .union([
+      z.string().trim().max(1000, "Catatan maksimal 1000 karakter"),
+      z.literal(""),
+    ])
+    .optional(),
+});
+
+export type SessionActionInput = z.infer<typeof sessionActionSchema>;

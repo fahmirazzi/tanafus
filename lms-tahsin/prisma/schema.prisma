@@ -338,7 +338,9 @@ model SessionAttendance {
 
 model GradeCriterion {
   id          Int            @id @default(autoincrement())
-  name        String // Makharijul Huruf, Sifatul Huruf, Tajwid, Kelancaran
+  /// Unik supaya seed rubrik bisa dijalankan berulang tanpa menggandakan
+  /// kriteria: Makharijul Huruf, Sifatul Huruf, Tajwid, Kelancaran.
+  name        String         @unique
   description String?
   maxScore    Decimal        @default(100) @db.Decimal(5, 2)
   scope       String         @default("both") // regular | private | both
@@ -368,7 +370,12 @@ model SessionFeedback {
   nextTarget   String?
   audioNoteUrl String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
   session      Session  @relation(fields: [sessionId], references: [id])
+
+  // Satu feedback per murid per sesi: guru yang mengirim ulang sedang
+  // memperbaiki catatannya, bukan menambah catatan kedua.
+  @@unique([sessionId, studentId])
 }
 
 /// Catatan bahwa satu pengingat sudah dikirim. Unique (sessionId, kind)

@@ -9,6 +9,12 @@ import {
   zonedDateKey,
   zonedDateTimeToUtc,
 } from "@/lib/sessions";
+import {
+  createNotifications,
+  getStudentAudienceIds,
+} from "@/lib/notifications";
+import { formatTanggalJamWIB } from "@/lib/datetime";
+import { TX_OPTIONS } from "@/lib/users";
 import { rescheduleSessionSchema } from "@/lib/validations/session";
 import {
   LeaveStatus,
@@ -41,6 +47,7 @@ export async function PATCH(
         status: true,
         durationMinutes: true,
         scheduledAt: true,
+        student: { select: { fullName: true } },
       },
     });
     if (!session) return apiError("Sesi tidak ditemukan", 404);
@@ -137,11 +144,29 @@ export async function PATCH(
       return apiError(`${who} pada waktu yang beririsan. Pilih jam lain.`, 422);
     }
 
+    // PRD F-2c: memindah sesi wajib memberi tahu murid dan orang tuanya.
+    // Notifikasi ikut di dalam transaksi supaya tidak pernah ada kabar
+    // tentang perpindahan yang ternyata gagal disimpan.
+    const audience = await getStudentAudienceIds(session.studentId);
+    const studentName = session.student?.fullName ?? "murid";
+    const waktuLama = formatTanggalJamWIB(session.scheduledAt);
+    const waktuBaru = formatTanggalJamWIB(scheduledAt);
+
     try {
-      await prisma.session.update({
-        where: { id },
-        data: { scheduledAt, durationMinutes },
-      });
+      await prisma.$transaction(async (tx) => {
+        await tx.session.update({
+          where: { id },
+          data: { scheduledAt, durationMinutes },
+        });
+
+        await createNotifications(tx, {
+          userIds: audience,
+          type: "session_rescheduled",
+          title: "Jadwal sesi dipindah",
+          body: `Sesi ${studentName} yang semula ${waktuLama} dipindah ke ${waktuBaru}.`,
+          data: { sessionId: id },
+        });
+      }, TX_OPTIONS);
     } catch (error) {
       // unique (studentId, scheduledAt) ikut menghitung sesi yang sudah
       // dibatalkan, sedangkan pengecekan bentrok di atas mengabaikannya.

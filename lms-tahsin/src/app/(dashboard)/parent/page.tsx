@@ -13,7 +13,7 @@ export default async function OrangtuaDashboardPage() {
       title="Dashboard Orang Tua"
       subtitle={`Assalamu'alaikum, ${user.name ?? "Wali"}.`}
       roles={user.roles}
-      note="Progres anak, jadwal sesi, dan tagihan menyusul di Sprint 2-4."
+      note="Progres dan feedback anak sudah tersedia di menu Progres. Halaman tagihan menyusul di Sprint 4."
     />
   );
 }

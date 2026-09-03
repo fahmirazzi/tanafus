@@ -41,6 +41,29 @@ async function main(): Promise<void> {
     });
   }
 
+  // ------------------------------------------------------- rubrik penilaian
+  // PRD F-4a: empat kriteria skala 0-100 yang dinilai guru tiap sesi privat.
+  // Di-upsert lewat name (unik) supaya seed boleh dijalankan berulang.
+  const criteria = [
+    {
+      name: "Makharijul Huruf",
+      description: "Ketepatan tempat keluarnya huruf.",
+    },
+    {
+      name: "Sifatul Huruf",
+      description: "Ketepatan sifat yang melekat pada huruf.",
+    },
+    { name: "Tajwid", description: "Penerapan hukum bacaan." },
+    { name: "Kelancaran", description: "Kelancaran dan kestabilan bacaan." },
+  ];
+  for (const criterion of criteria) {
+    await prisma.gradeCriterion.upsert({
+      where: { name: criterion.name },
+      update: { description: criterion.description },
+      create: { ...criterion, maxScore: 100, scope: "private" },
+    });
+  }
+
   // ---------------------------------------------------------------- users
   async function upsertUser(input: {
     email: string;

@@ -13,7 +13,7 @@ export default async function GuruDashboardPage() {
       title="Dashboard Guru"
       subtitle={`Assalamu'alaikum, ${user.name ?? "Ustadz/Ustadzah"}.`}
       roles={user.roles}
-      note="Kalender sesi privat dan daftar murid menyusul di Sprint 2."
+      note="Kalender mingguan, daftar murid, dan feedback sesi sudah tersedia di menu samping. Ringkasan earnings dan payout menyusul di Sprint 5."
     />
   );
 }

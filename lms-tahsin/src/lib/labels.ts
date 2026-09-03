@@ -1,6 +1,7 @@
 import {
   BillingPreference,
   Gender,
+  PrivateAssignmentStatus,
   Relation,
   RoleName,
 } from "@/generated/prisma/enums";
@@ -30,3 +31,10 @@ export const BILLING_LABEL: Record<BillingPreference, string> = {
   [BillingPreference.per_session]: "Per sesi",
   [BillingPreference.monthly_bundle]: "Bulanan",
 };
+
+export const PRIVATE_ASSIGNMENT_LABEL: Record<PrivateAssignmentStatus, string> =
+  {
+    [PrivateAssignmentStatus.active]: "Aktif",
+    [PrivateAssignmentStatus.paused]: "Dijeda",
+    [PrivateAssignmentStatus.ended]: "Selesai",
+  };

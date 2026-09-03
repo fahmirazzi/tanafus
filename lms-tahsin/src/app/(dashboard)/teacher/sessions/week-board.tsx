@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, type DragEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GripVertical, Move } from "lucide-react";
+import { ArrowRight, GripVertical, Move } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,6 +188,16 @@ export function WeekBoard({
                       {session.notes ? (
                         <p className="text-xs text-plum-500">{session.notes}</p>
                       ) : null}
+
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        nativeButton={false}
+                        render={<Link href={`/teacher/sessions/${session.id}`} />}
+                      >
+                        Detail &amp; feedback
+                        <ArrowRight data-icon="inline-end" />
+                      </Button>
 
                       {canMove ? (
                         <div className="pt-1">

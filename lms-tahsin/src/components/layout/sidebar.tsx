@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
 import {
+  Bell,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -12,6 +13,8 @@ import {
   CalendarDays,
   CalendarClock,
   CalendarOff,
+  GraduationCap,
+  TrendingUp,
   Wallet,
   Receipt,
   UserRound,
@@ -27,6 +30,8 @@ type NavItem = {
   label: string;
   icon: typeof LayoutDashboard;
   roles: readonly RoleName[];
+  /** Menu notifikasi menampilkan jumlah yang belum dibaca. */
+  showUnread?: boolean;
 };
 
 const NAV_ITEMS: readonly NavItem[] = [
@@ -79,6 +84,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.teacher],
   },
   {
+    href: "/teacher/students",
+    label: "Murid saya",
+    icon: GraduationCap,
+    roles: [RoleName.teacher],
+  },
+  {
     href: "/teacher/breaks",
     label: "Libur murid",
     icon: CalendarOff,
@@ -103,10 +114,29 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.parent, RoleName.student],
   },
   {
+    href: "/parent/progress",
+    label: "Progres",
+    icon: TrendingUp,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
     href: "/parent/breaks",
     label: "Libur",
     icon: CalendarOff,
     roles: [RoleName.parent, RoleName.student],
+  },
+  {
+    href: "/notifications",
+    label: "Notifikasi",
+    icon: Bell,
+    roles: [
+      RoleName.super_admin,
+      RoleName.admin,
+      RoleName.teacher,
+      RoleName.parent,
+      RoleName.student,
+    ],
+    showUnread: true,
   },
 ];
 
@@ -118,9 +148,11 @@ const COMING_SOON: readonly { label: string; icon: typeof Users }[] = [
 export function Sidebar({
   roles,
   userName,
+  unreadCount,
 }: {
   roles: RoleName[];
   userName: string;
+  unreadCount: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -204,7 +236,15 @@ export function Sidebar({
                 )}
               >
                 <item.icon className="size-4 shrink-0" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.showUnread && unreadCount > 0 ? (
+                  <span
+                    aria-label={`${unreadCount} belum dibaca`}
+                    className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white"
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

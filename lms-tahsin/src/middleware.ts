@@ -16,6 +16,9 @@ const PROTECTED_ROUTES: ReadonlyArray<{
   { prefix: "/parent", roles: [RoleName.parent, RoleName.student] },
 ];
 
+/** Halaman yang cukup butuh login; semua peran boleh membukanya. */
+const AUTHENTICATED_ROUTES = ["/notifications"];
+
 const AUTH_PAGES = ["/login", "/register"];
 
 export default auth((req) => {
@@ -26,6 +29,16 @@ export default auth((req) => {
   // Sudah login tapi membuka halaman login/register -> lempar ke dashboard.
   if (isLoggedIn && AUTH_PAGES.some((p) => pathname.startsWith(p))) {
     return NextResponse.redirect(new URL(homeForRoles(roles), req.nextUrl));
+  }
+
+  const needsLoginOnly = AUTHENTICATED_ROUTES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+  if (needsLoginOnly) {
+    if (isLoggedIn) return NextResponse.next();
+    const loginUrl = new URL("/login", req.nextUrl);
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   const rule = PROTECTED_ROUTES.find(
@@ -53,6 +66,7 @@ export const config = {
     "/admin/:path*",
     "/teacher/:path*",
     "/parent/:path*",
+    "/notifications/:path*",
     "/login",
     "/register",
   ],
