@@ -60,6 +60,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
+    href: "/admin/invoices",
+    label: "Tagihan",
+    icon: Receipt,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
     href: "/teacher",
     label: "Dashboard",
     icon: LayoutDashboard,
@@ -120,6 +126,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.parent, RoleName.student],
   },
   {
+    href: "/parent/billing",
+    label: "Tagihan",
+    icon: Receipt,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
     href: "/parent/breaks",
     label: "Libur",
     icon: CalendarOff,
@@ -138,11 +150,6 @@ const NAV_ITEMS: readonly NavItem[] = [
     ],
     showUnread: true,
   },
-];
-
-/** Placeholder menu fase berikutnya — ditampilkan nonaktif agar struktur terlihat. */
-const COMING_SOON: readonly { label: string; icon: typeof Users }[] = [
-  { label: "Tagihan", icon: Receipt },
 ];
 
 export function Sidebar({
@@ -248,20 +255,6 @@ export function Sidebar({
               </Link>
             );
           })}
-
-          <p className="px-3 pt-5 pb-1 text-xs font-medium uppercase tracking-wide text-plum-500">
-            Segera hadir
-          </p>
-          {COMING_SOON.map((item) => (
-            <span
-              key={item.label}
-              aria-disabled="true"
-              className="flex cursor-not-allowed items-center gap-3 rounded-md px-3 py-2 text-sm text-plum-500"
-            >
-              <item.icon className="size-4 shrink-0" />
-              {item.label}
-            </span>
-          ))}
         </nav>
 
         <div className="border-t border-sidebar-border px-3 py-4">

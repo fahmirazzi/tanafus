@@ -9,6 +9,7 @@ import {
   requireAuth,
 } from "@/lib/auth-guard";
 import { assertCanScheduleFor } from "@/lib/schedules";
+import { assertStudentNotSuspended } from "@/lib/suspension";
 import {
   findSessionConflict,
   zonedDateKey,
@@ -116,6 +117,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     await assertCanScheduleFor(user, teacherId, studentId);
+    // BR-04.6: murid yang disuspend tidak boleh dijadwalkan sesi baru.
+    await assertStudentNotSuspended(studentId);
 
     // BR-03.1: durasi tanpa tarif aktif tidak bisa ditagih saat sesi selesai.
     const tier = await prisma.pricingTier.findFirst({

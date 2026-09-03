@@ -21,6 +21,7 @@ import {
   findScheduleConflict,
   toDateOrNull,
 } from "@/lib/schedules";
+import { assertStudentNotSuspended } from "@/lib/suspension";
 import { DAY_OF_WEEK_LABEL } from "@/lib/validations/schedule";
 import {
   createScheduleSchema,
@@ -107,6 +108,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     await assertCanScheduleFor(user, teacherId, studentId);
+    // BR-04.6: jadwal berulang melahirkan sesi baru tiap pekan, jadi
+    // pembuatannya ikut ditutup selama murid disuspend.
+    await assertStudentNotSuspended(studentId);
 
     // BR-03.1: durasi harus punya tarif aktif, kalau tidak sesi hasil
     // generator nanti tidak bisa ditagih.

@@ -74,6 +74,15 @@ enum PaymentMethod {
   qris
 }
 
+/// Sebuah pembayaran belum tentu uang yang sudah masuk: transfer manual
+/// menunggu admin melihat buktinya, Snap menunggu webhook Midtrans.
+/// `pending` membuat keduanya tercatat tanpa membuat invoice ikut lunas.
+enum PaymentStatus {
+  pending
+  verified
+  rejected
+}
+
 enum ChargeStatus {
   pending
   invoiced
@@ -151,8 +160,15 @@ model User {
   timezone          String            @default("Asia/Jakarta")
   isActive          Boolean           @default(true)
   billingPreference BillingPreference @default(per_session) // untuk murid privat
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+
+  /// BR-04.6: murid dengan invoice overdue > 14 hari tidak boleh dijadwalkan
+  /// sesi baru. null = tidak disuspend. Pencabutan adalah keputusan admin,
+  /// bukan efek otomatis pelunasan, jadi cron tidak pernah mengosongkannya.
+  suspendedAt      DateTime?
+  suspensionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   roles                       UserRole[]
   children                    ParentStudent[]            @relation("children")
@@ -538,6 +554,10 @@ model SessionCharge {
   session         Session       @relation(fields: [sessionId], references: [id])
   student         User          @relation(fields: [studentId], references: [id])
   invoiceItems    InvoiceItem[]
+
+  /// Cron bundel bulanan mencari charge `pending` milik satu murid dalam
+  /// rentang tanggal; itulah bentuk indeks ini.
+  @@index([studentId, status, createdAt])
 }
 
 model Invoice {
@@ -552,10 +572,21 @@ model Invoice {
   total         Decimal       @db.Decimal(12, 2)
   status        InvoiceStatus @default(draft)
   paidAt        DateTime?
-  createdAt     DateTime      @default(now())
-  student       User          @relation(fields: [studentId], references: [id])
-  items         InvoiceItem[]
-  payments      Payment[]
+
+  /// BR-04.7: invoice yang salah di-void, tidak dihapus. Siapa dan kapan
+  /// tercatat di AuditLog; alasannya di sini supaya ikut terbaca murid.
+  voidReason String?
+  voidedAt   DateTime?
+
+  createdAt DateTime      @default(now())
+  student   User          @relation(fields: [studentId], references: [id])
+  items     InvoiceItem[]
+  payments  Payment[]
+
+  /// Cron harian menyapu invoice yang lewat due date, dan halaman tagihan
+  /// selalu menyaring per murid — dua pola query itu yang diindeks.
+  @@index([status, dueDate])
+  @@index([studentId, status])
 }
 
 model InvoiceItem {
@@ -566,18 +597,41 @@ model InvoiceItem {
   amount          Decimal        @db.Decimal(12, 2)
   invoice         Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   sessionCharge   SessionCharge? @relation(fields: [sessionChargeId], references: [id])
+
+  @@index([invoiceId])
 }
 
 model Payment {
-  id         String        @id @default(uuid())
-  invoiceId  String
-  amount     Decimal       @db.Decimal(12, 2)
-  method     PaymentMethod
-  reference  String?
+  id        String        @id @default(uuid())
+  invoiceId String
+  amount    Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  status    PaymentStatus @default(pending)
+
+  /// Nomor rujukan yang unik lintas kanal: order_id Midtrans untuk Snap,
+  /// nomor rujukan bank untuk transfer manual. Unique-nya yang membuat
+  /// webhook Midtrans idempotent — notifikasi yang sama tidak pernah
+  /// melahirkan baris kedua. NULL boleh berulang di Postgres, jadi
+  /// pembayaran manual tanpa nomor rujukan tetap bisa disimpan.
+  reference String? @unique
+
+  /// Token Snap yang sudah diterbitkan, dipakai ulang selama masih pending
+  /// agar satu invoice tidak menumpuk transaksi gantung di sisi Midtrans.
+  gatewayToken String?
+
   proofUrl   String?
+  note       String?
   verifiedBy String?
-  paidAt     DateTime      @default(now())
-  invoice    Invoice       @relation(fields: [invoiceId], references: [id])
+  verifiedAt DateTime?
+
+  /// Diisi hanya ketika pembayaran benar-benar sah (verified). Berbeda dari
+  /// skema awal yang selalu mengisinya, karena baris pending belum berarti
+  /// uang sudah diterima.
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, status])
 }
 
 // ===================== EARNINGS & PAYOUT =====================

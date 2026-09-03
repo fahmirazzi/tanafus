@@ -23,6 +23,7 @@ export type GenerationSummary = {
   skipped: {
     studentBreak: number;
     teacherLeave: number;
+    suspended: number;
     alreadyExists: number;
     inThePast: number;
   };
@@ -36,7 +37,8 @@ export type GenerationSummary = {
  * skipDuplicates pada createMany, dan unique (studentId, scheduledAt) di DB.
  *
  * Sesi dilewati bila: ada student_break disetujui, ada teacher_leave aktif,
- * slotnya sudah terisi, atau waktunya sudah lewat.
+ * murid sedang disuspend karena tunggakan (BR-04.6), slotnya sudah terisi,
+ * atau waktunya sudah lewat.
  */
 export async function generateUpcomingSessions(
   options: { days?: number; now?: Date } = {},
@@ -45,7 +47,7 @@ export async function generateUpcomingSessions(
   const now = options.now ?? new Date();
   const dateKeys = upcomingDateKeys(now, days);
 
-  const [schedules, breaks, leaves] = await Promise.all([
+  const [schedules, breaks, leaves, suspended] = await Promise.all([
     prisma.privateRecurringSchedule.findMany({
       where: { isActive: true },
       select: {
@@ -74,11 +76,19 @@ export async function generateUpcomingSessions(
       where: { status: { in: [LeaveStatus.approved, LeaveStatus.active] } },
       select: { teacherId: true, startDate: true, endDate: true },
     }),
+    // BR-04.6: murid yang disuspend tidak boleh dijadwalkan sesi baru. Sesi
+    // yang terlanjur ada tetap berjalan — generator hanya berhenti menambah.
+    prisma.user.findMany({
+      where: { NOT: { suspendedAt: null } },
+      select: { id: true },
+    }),
   ]);
+  const suspendedIds = new Set(suspended.map((student) => student.id));
 
   const skipped = {
     studentBreak: 0,
     teacherLeave: 0,
+    suspended: 0,
     alreadyExists: 0,
     inThePast: 0,
   };
@@ -93,6 +103,11 @@ export async function generateUpcomingSessions(
   const candidates: Candidate[] = [];
 
   for (const schedule of schedules) {
+    if (suspendedIds.has(schedule.studentId)) {
+      skipped.suspended += 1;
+      continue;
+    }
+
     for (const dateKey of dateKeys) {
       if (zonedDayOfWeek(dateKey) !== schedule.dayOfWeek) continue;
 

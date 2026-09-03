@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth-guard";
 import { writeAudit } from "@/lib/audit";
 import { computeEarning, resolveSessionAmount } from "@/lib/billing";
+import { issueInvoice } from "@/lib/invoice-issuer";
 import {
   createNotifications,
   getStudentAudienceIds,
@@ -25,7 +26,7 @@ import {
   SESSION_STATUS_LABEL,
   sessionActionSchema,
 } from "@/lib/validations/session";
-import { SessionType } from "@/generated/prisma/enums";
+import { BillingPreference, SessionType } from "@/generated/prisma/enums";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -61,7 +62,7 @@ export async function POST(
         studentId: true,
         scheduledAt: true,
         durationMinutes: true,
-        student: { select: { fullName: true } },
+        student: { select: { fullName: true, billingPreference: true } },
       },
     });
     if (!session) return apiError("Sesi tidak ditemukan", 404);
@@ -169,6 +170,7 @@ export async function POST(
 
       let chargeCreated = false;
       let earningCreated = false;
+      let invoice: Awaited<ReturnType<typeof issueInvoice>> = null;
 
       if (billable) {
         const charge = await tx.sessionCharge.createMany({
@@ -213,6 +215,30 @@ export async function POST(
             newData: { amount: earningAmount, teacherId: earnerId },
           });
         }
+
+        // BR-04.3a: murid per_session langsung menerima invoice berisi satu
+        // charge. Murid monthly_bundle menunggu cron tanggal 1.
+        //
+        // Chargenya dicari ulang alih-alih memakai chargeCreated: bila sesi
+        // ini pernah gagal ditagih karena kesalahan sesaat, jalan kedua di
+        // sini menambalnya. issueInvoice sendiri menyaring charge yang sudah
+        // masuk invoice, jadi pengulangan tidak melahirkan tagihan kedua.
+        if (
+          session.student?.billingPreference === BillingPreference.per_session
+        ) {
+          const charge = await tx.sessionCharge.findUnique({
+            where: { sessionId: id },
+            select: { id: true },
+          });
+          if (charge) {
+            invoice = await issueInvoice(tx, {
+              studentId,
+              chargeIds: [charge.id],
+              actorId: user.id,
+              now: new Date(),
+            });
+          }
+        }
       }
 
       // BR-09: pembatalan oleh guru wajib diberitahukan; PRD F-3a juga
@@ -237,7 +263,7 @@ export async function POST(
         });
       }
 
-      return { chargeCreated, earningCreated };
+      return { chargeCreated, earningCreated, invoice };
     }, TX_OPTIONS);
 
     return apiOk({
@@ -247,6 +273,7 @@ export async function POST(
       earning: billable
         ? { amount: earningAmount, created: result.earningCreated }
         : null,
+      invoice: result.invoice,
     });
   } catch (error) {
     return handleApiError(error);

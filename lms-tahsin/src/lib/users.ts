@@ -156,11 +156,8 @@ export async function countOtherActiveSuperAdmins(
 /** bcrypt cost — sama dengan endpoint registrasi. */
 export const BCRYPT_ROUNDS = 10;
 
-/**
- * Pooler Supabase punya latensi ~1 detik per query, sedangkan default
- * interactive transaction Prisma hanya 5 detik. Beri ruang lebih.
- */
-export const TX_OPTIONS = { maxWait: 10_000, timeout: 20_000 } as const;
+/** Dipindahkan ke prisma.ts; diekspor ulang agar pemanggil lama tetap jalan. */
+export { TX_OPTIONS } from "@/lib/prisma";
 
 /** Kolom daftar pengguna — dipakai API list dan halaman admin. */
 export const USER_LIST_SELECT = {

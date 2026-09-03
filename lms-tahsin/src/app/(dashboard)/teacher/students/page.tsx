@@ -23,7 +23,9 @@ export default async function TeacherStudentsPage() {
     select: {
       status: true,
       level: true,
-      student: { select: { id: true, fullName: true } },
+      student: {
+        select: { id: true, fullName: true, suspendedAt: true },
+      },
     },
     orderBy: { student: { fullName: "asc" } },
   });
@@ -59,12 +61,22 @@ export default async function TeacherStudentsPage() {
                   <Badge variant="secondary">
                     {PRIVATE_ASSIGNMENT_LABEL[assignment.status]}
                   </Badge>
+                  {/* BR-04.6: guru perlu tahu sebelum mencoba menjadwalkan. */}
+                  {assignment.student.suspendedAt ? (
+                    <Badge variant="destructive">Disuspend</Badge>
+                  ) : null}
                   {assignment.level ? (
                     <span className="text-xs text-plum-500">
                       {assignment.level}
                     </span>
                   ) : null}
                 </div>
+                {assignment.student.suspendedAt ? (
+                  <p className="text-xs text-plum-500">
+                    Tagihan menunggak. Sesi baru belum bisa dijadwalkan; sesi
+                    yang sudah ada tetap berjalan.
+                  </p>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"
