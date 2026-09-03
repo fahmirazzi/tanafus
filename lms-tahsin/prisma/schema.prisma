@@ -162,6 +162,8 @@ model User {
   teacherRequestsAsTeacher    TeacherRequest[]           @relation("TeacherRequestTeacher")
   recurringSchedulesAsTeacher PrivateRecurringSchedule[] @relation("RecurringScheduleTeacher")
   recurringSchedulesAsStudent PrivateRecurringSchedule[] @relation("RecurringScheduleStudent")
+  studentBreaksAsStudent      StudentBreak[]             @relation("StudentBreakStudent")
+  studentBreaksAsTeacher      StudentBreak[]             @relation("StudentBreakTeacher")
   enrollments                 Enrollment[]
   notifications               Notification[]
   customRate                  StudentCustomRate?
@@ -388,13 +390,24 @@ model PrivateRecurringSchedule {
 }
 
 model StudentBreak {
-  id        String               @id @default(uuid())
-  studentId String
-  teacherId String
-  startDate DateTime             @db.Date
-  endDate   DateTime             @db.Date
-  reason    String?
-  status    SimpleApprovalStatus @default(pending)
+  id         String               @id @default(uuid())
+  studentId  String
+  teacherId  String
+  startDate  DateTime             @db.Date
+  endDate    DateTime             @db.Date
+  reason     String?
+  status     SimpleApprovalStatus @default(pending)
+  reviewNote String? // alasan penolakan, diisi guru/admin saat menolak
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @default(now()) @updatedAt
+
+  student User @relation("StudentBreakStudent", fields: [studentId], references: [id])
+  teacher User @relation("StudentBreakTeacher", fields: [teacherId], references: [id])
+
+  @@index([teacherId, status])
+  @@index([studentId, status])
 }
 
 model TeacherLeave {

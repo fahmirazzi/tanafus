@@ -11,6 +11,7 @@ import {
   Users,
   CalendarDays,
   CalendarClock,
+  CalendarOff,
   Wallet,
   Receipt,
   UserRound,
@@ -78,6 +79,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.teacher],
   },
   {
+    href: "/teacher/breaks",
+    label: "Libur murid",
+    icon: CalendarOff,
+    roles: [RoleName.teacher],
+  },
+  {
     href: "/teacher/profile",
     label: "Profil",
     icon: UserRound,
@@ -93,6 +100,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/parent/enrollment",
     label: "Pendaftaran privat",
     icon: Inbox,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
+    href: "/parent/breaks",
+    label: "Libur",
+    icon: CalendarOff,
     roles: [RoleName.parent, RoleName.student],
   },
 ];
