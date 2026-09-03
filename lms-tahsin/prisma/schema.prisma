@@ -302,9 +302,15 @@ model Session {
   earning            SessionEarning?
   rescheduleRequests RescheduleRequest[]
 
+  // Idempotensi generator (PRD F-2a): satu murid tidak mungkin punya dua
+  // sesi pada instan yang sama, jadi aturannya ditegakkan di level DB,
+  // bukan hanya lewat pengecekan sebelum insert. Sesi reguler punya
+  // studentId NULL dan Postgres menganggap NULL selalu berbeda, sehingga
+  // tidak ikut terkena. Menggantikan @@index([studentId, scheduledAt])
+  // karena unique sudah membuat indeksnya sendiri.
+  @@unique([studentId, scheduledAt])
   @@index([classGroupId, scheduledAt])
   @@index([teacherId, scheduledAt])
-  @@index([studentId, scheduledAt])
   @@index([scheduledAt])
 }
 
