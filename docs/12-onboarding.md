@@ -99,9 +99,23 @@ sendiri:
      admin. Isi belakangan kapan saja tanpa perlu ubah kode.
    - `RESEND_API_KEY`, `EMAIL_FROM` (opsional) — tanpa ini, notifikasi
      tetap jalan penuh lewat in-app, hanya kanal email yang tidak aktif.
-4. **Cron jobs.** `vercel.json` mendaftarkan tiga yang harian/bulanan
-   (generator sesi, overdue harian, bundel bulanan) — semuanya jalan di
-   paket Vercel Hobby. **Pengingat H-1 jam/H-5 menit sengaja TIDAK
+   - `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` (opsional) — endpoint pelaporan
+     error ke Sentry, sisi server dan sisi klien. Tanpa keduanya, aplikasi
+     tetap jalan penuh; error hanya tercatat di log Vercel, tidak
+     terkirim ke Sentry.
+   - `SECURITY_CSP_ENFORCE` (opsional) — set `true` untuk mengubah
+     Content-Security-Policy dari mode report-only menjadi mode blokir
+     sungguhan. Tanpa ini (default), CSP hanya melaporkan pelanggaran
+     tanpa memblokirnya — pantau laporannya dulu satu rilis penuh sebelum
+     menyalakan mode blokir (lihat Verifikasi Akhir Rilis A).
+   - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (opsional) —
+     backend rate limiting terdistribusi lewat Upstash Redis. Tanpa
+     keduanya, rate limiting tetap aktif tapi jatuh ke penyimpanan
+     in-memory per instance (tidak konsisten lintas instance serverless).
+4. **Cron jobs.** `vercel.json` mendaftarkan empat yang harian/bulanan
+   (generator sesi, overdue harian, bundel bulanan, eksekusi penghapusan
+   akun) — semuanya jalan di paket Vercel Hobby. **Pengingat H-1 jam/H-5
+   menit sengaja TIDAK
    didaftarkan di `vercel.json`**: jadwalnya `*/5 * * * *` (tiap 5
    menit), dan Hobby cuma mengizinkan cron harian — mendaftarkannya di
    sana bikin deploy ditolak. Jalankan lewat pemicu luar seperti
@@ -116,11 +130,18 @@ sendiri:
      atau buatkan admin lewat menu **Pengguna** dan tautkan
      orang tua–anak.
 6. **Kebijakan privasi & persetujuan.** Checkbox persetujuan kebijakan
-   privasi di halaman registrasi (UU PDP) sudah ada. Yang BELUM ada:
-   fitur hapus akun dan export data milik sendiri, yang menurut NFR
-   wajib tersedia sebelum rilis publik (lihat NFR-6 di
-   `docs/09-non-functional.md`) — pastikan ini dibangun sebelum lembaga
-   sungguhan mulai mendaftarkan murid.
+   privasi di halaman registrasi (UU PDP) sudah ada. Fitur hapus akun
+   (`POST /api/account/deletion-request`, bisa dibatalkan dengan
+   `DELETE` selama masa tenggang) dan export data milik sendiri
+   (`GET /api/account/export`) juga sudah ada, memenuhi NFR-6 di
+   `docs/09-non-functional.md`. Penghapusan BUKAN hard delete —
+   akunnya dianonimkan (nama, email, telepon, dll dikosongkan) 7 hari
+   setelah diajukan, supaya jejak keuangan (invoice, charge, earning,
+   audit log) tetap bertahan sesuai BR-10.4. Anonimisasi ini dieksekusi
+   oleh cron `process-deletions`, jadi pastikan itu terdaftar di
+   `vercel.json` (lihat poin 4) — tanpa cron ini, permintaan penghapusan
+   akan menumpuk sebagai `pending` dan tidak pernah benar-benar
+   dieksekusi.
 
 ### Kalau `/api/health` tetap db:"down" di Vercel
 
