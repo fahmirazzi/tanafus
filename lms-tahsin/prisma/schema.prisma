@@ -74,6 +74,15 @@ enum PaymentMethod {
   qris
 }
 
+/// Sebuah pembayaran belum tentu uang yang sudah masuk: transfer manual
+/// menunggu admin melihat buktinya, Snap menunggu webhook Midtrans.
+/// `pending` membuat keduanya tercatat tanpa membuat invoice ikut lunas.
+enum PaymentStatus {
+  pending
+  verified
+  rejected
+}
+
 enum ChargeStatus {
   pending
   invoiced
@@ -125,6 +134,17 @@ enum Relation {
   guardian
 }
 
+enum ReminderKind {
+  h1 // satu jam sebelum sesi
+  m5 // lima menit sebelum sesi
+}
+
+enum PrivateAssignmentStatus {
+  active
+  paused
+  ended
+}
+
 // ===================== USER & ROLE =====================
 
 model User {
@@ -140,23 +160,41 @@ model User {
   timezone          String            @default("Asia/Jakarta")
   isActive          Boolean           @default(true)
   billingPreference BillingPreference @default(per_session) // untuk murid privat
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
 
-  roles                UserRole[]
-  children             ParentStudent[]    @relation("children")
-  parents              ParentStudent[]    @relation("parents")
-  teacherProfile       TeacherProfile?
-  sessionsAsTeacher    Session[]          @relation("SessionTeacher")
-  sessionsAsSubstitute Session[]          @relation("SessionSubstitute")
-  sessionsAsStudent    Session[]          @relation("SessionStudent")
-  enrollments          Enrollment[]
-  notifications        Notification[]
-  customRate           StudentCustomRate?
-  charges              SessionCharge[]
-  invoices             Invoice[]
-  earnings             SessionEarning[]
-  payouts              Payout[]
+  /// BR-04.6: murid dengan invoice overdue > 14 hari tidak boleh dijadwalkan
+  /// sesi baru. null = tidak disuspend. Pencabutan adalah keputusan admin,
+  /// bukan efek otomatis pelunasan, jadi cron tidak pernah mengosongkannya.
+  suspendedAt      DateTime?
+  suspensionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  roles                       UserRole[]
+  children                    ParentStudent[]            @relation("children")
+  parents                     ParentStudent[]            @relation("parents")
+  teacherProfile              TeacherProfile?
+  sessionsAsTeacher           Session[]                  @relation("SessionTeacher")
+  sessionsAsSubstitute        Session[]                  @relation("SessionSubstitute")
+  sessionsAsStudent           Session[]                  @relation("SessionStudent")
+  privateAssignmentsAsTeacher PrivateAssignment[]        @relation("PrivateAssignmentTeacher")
+  privateAssignmentsAsStudent PrivateAssignment[]        @relation("PrivateAssignmentStudent")
+  teacherRequestsAsStudent    TeacherRequest[]           @relation("TeacherRequestStudent")
+  teacherRequestsAsTeacher    TeacherRequest[]           @relation("TeacherRequestTeacher")
+  recurringSchedulesAsTeacher PrivateRecurringSchedule[] @relation("RecurringScheduleTeacher")
+  recurringSchedulesAsStudent PrivateRecurringSchedule[] @relation("RecurringScheduleStudent")
+  studentBreaksAsStudent      StudentBreak[]             @relation("StudentBreakStudent")
+  studentBreaksAsTeacher      StudentBreak[]             @relation("StudentBreakTeacher")
+  enrollments                 Enrollment[]
+  notifications               Notification[]
+  customRate                  StudentCustomRate?
+  charges                     SessionCharge[]
+  invoices                    Invoice[]
+  earnings                    SessionEarning[]
+  payouts                     Payout[]
+  teacherLeavesAsTeacher      TeacherLeave[]             @relation("TeacherLeaveTeacher")
+  leaveCoveragesAsStudent     TeacherLeaveCoverage[]     @relation("LeaveCoverageStudent")
+  leaveCoveragesAsSubstitute  TeacherLeaveCoverage[]     @relation("LeaveCoverageSubstitute")
 }
 
 model Role {
@@ -184,6 +222,9 @@ model ParentStudent {
   student   User     @relation("children", fields: [studentId], references: [id])
 
   @@id([parentId, studentId])
+  // Primary key hanya mengindeks prefix parentId; pencarian "siapa orang tua
+  // murid ini" (halaman detail murid, ownership guard) butuh index sendiri.
+  @@index([studentId])
 }
 
 model TeacherProfile {
@@ -286,10 +327,17 @@ model Session {
   charge             SessionCharge?
   earning            SessionEarning?
   rescheduleRequests RescheduleRequest[]
+  reminders          SessionReminder[]
 
+  // Idempotensi generator (PRD F-2a): satu murid tidak mungkin punya dua
+  // sesi pada instan yang sama, jadi aturannya ditegakkan di level DB,
+  // bukan hanya lewat pengecekan sebelum insert. Sesi reguler punya
+  // studentId NULL dan Postgres menganggap NULL selalu berbeda, sehingga
+  // tidak ikut terkena. Menggantikan @@index([studentId, scheduledAt])
+  // karena unique sudah membuat indeksnya sendiri.
+  @@unique([studentId, scheduledAt])
   @@index([classGroupId, scheduledAt])
   @@index([teacherId, scheduledAt])
-  @@index([studentId, scheduledAt])
   @@index([scheduledAt])
 }
 
@@ -309,7 +357,9 @@ model SessionAttendance {
 
 model GradeCriterion {
   id          Int            @id @default(autoincrement())
-  name        String // Makharijul Huruf, Sifatul Huruf, Tajwid, Kelancaran
+  /// Unik supaya seed rubrik bisa dijalankan berulang tanpa menggandakan
+  /// kriteria: Makharijul Huruf, Sifatul Huruf, Tajwid, Kelancaran.
+  name        String         @unique
   description String?
   maxScore    Decimal        @default(100) @db.Decimal(5, 2)
   scope       String         @default("both") // regular | private | both
@@ -339,7 +389,26 @@ model SessionFeedback {
   nextTarget   String?
   audioNoteUrl String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
   session      Session  @relation(fields: [sessionId], references: [id])
+
+  // Satu feedback per murid per sesi: guru yang mengirim ulang sedang
+  // memperbaiki catatannya, bukan menambah catatan kedua.
+  @@unique([sessionId, studentId])
+}
+
+/// Catatan bahwa satu pengingat sudah dikirim. Unique (sessionId, kind)
+/// membuat pengiriman ganda mustahil di level DB, bukan hanya lewat
+/// pengecekan sebelum insert — cron pengingat berjalan tiap beberapa menit
+/// dan dua eksekusi bisa saja bertumpuk.
+model SessionReminder {
+  id        String       @id @default(uuid())
+  sessionId String
+  kind      ReminderKind
+  sentAt    DateTime     @default(now())
+  session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, kind])
 }
 
 // ===================== PRIVATE SCHEDULING =====================
@@ -355,37 +424,106 @@ model PrivateRecurringSchedule {
   isActive        Boolean   @default(true)
   effectiveFrom   DateTime? @db.Date
   effectiveUntil  DateTime? @db.Date
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  teacher User @relation("RecurringScheduleTeacher", fields: [teacherId], references: [id])
+  student User @relation("RecurringScheduleStudent", fields: [studentId], references: [id])
 
   @@unique([teacherId, studentId, dayOfWeek, startTime])
+  @@index([teacherId, isActive])
+  @@index([studentId, isActive])
 }
 
 model StudentBreak {
-  id        String               @id @default(uuid())
-  studentId String
-  teacherId String
-  startDate DateTime             @db.Date
-  endDate   DateTime             @db.Date
-  reason    String?
-  status    SimpleApprovalStatus @default(pending)
+  id         String               @id @default(uuid())
+  studentId  String
+  teacherId  String
+  startDate  DateTime             @db.Date
+  endDate    DateTime             @db.Date
+  reason     String?
+  status     SimpleApprovalStatus @default(pending)
+  reviewNote String? // alasan penolakan, diisi guru/admin saat menolak
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @default(now()) @updatedAt
+
+  student User @relation("StudentBreakStudent", fields: [studentId], references: [id])
+  teacher User @relation("StudentBreakTeacher", fields: [teacherId], references: [id])
+
+  @@index([teacherId, status])
+  @@index([studentId, status])
 }
 
+/// Cuti guru, pendek maupun panjang (BR-06, roadmap "Leave management").
+///
+/// Cuti pendek (BR-06.1) tidak butuh apa pun di sini selain baris riwayat —
+/// guru cukup meliburkan sesi satu per satu lewat aksi status sesi biasa.
+/// Baris ini betul-betul dipakai hanya untuk cuti panjang (type=long):
+/// koordinasi per-murid ada di TeacherLeaveCoverage, bukan di sini, karena
+/// BR-06.3 mensyaratkan SETIAP orang tua memilih sendiri (substitute atau
+/// pause) — satu guru cuti bisa punya sepuluh murid dengan sepuluh
+/// keputusan berbeda, bukan satu keputusan untuk semuanya.
 model TeacherLeave {
-  id                  String      @id @default(uuid())
-  teacherId           String
-  type                LeaveType
-  reason              String
-  startDate           DateTime    @db.Date
-  endDate             DateTime?   @db.Date
-  resolution          String? // substitute | pause | cancelled
+  id                String      @id @default(uuid())
+  teacherId         String
+  type              LeaveType
+  reason            String
+  startDate         DateTime    @db.Date
+  endDate           DateTime?   @db.Date
+  status            LeaveStatus @default(pending)
+  approvedBy        String?
+  approvedAt        DateTime?
+  /// Guru mengajukan "kembali aktif" (PRD F-7a) — diisi saat pengajuan
+  /// masuk, dibaca oleh endpoint approve-return, dikosongkan lagi kalau
+  /// admin menolaknya (guru boleh mengajukan ulang).
+  returnRequestedAt DateTime?
+  /// Diisi saat guru mengajukan "kembali aktif" dan admin menyetujuinya.
+  endedAt           DateTime?
+  createdAt         DateTime    @default(now())
+
+  teacher   User                   @relation("TeacherLeaveTeacher", fields: [teacherId], references: [id])
+  coverages TeacherLeaveCoverage[]
+
+  @@index([teacherId, status])
+}
+
+/// Keputusan SATU keluarga atas cuti panjang guru anaknya (BR-06.3/06.4).
+/// Dibuat satu baris per PrivateAssignment aktif begitu admin menyetujui
+/// cuti panjang, dengan choice masih null — orang tua yang mengisinya.
+model TeacherLeaveCoverage {
+  id                  String    @id @default(uuid())
+  leaveId             String
+  assignmentId        String
+  studentId           String
+  /// null = orang tua belum memilih. "substitute" | "pause" sesudahnya.
+  choice              String?
   substituteTeacherId String?
-  status              LeaveStatus @default(pending)
-  approvedBy          String?
-  createdAt           DateTime    @default(now())
+  decidedBy           String?
+  decidedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  leave      TeacherLeave      @relation(fields: [leaveId], references: [id])
+  assignment PrivateAssignment @relation(fields: [assignmentId], references: [id])
+  student    User              @relation("LeaveCoverageStudent", fields: [studentId], references: [id])
+  substitute User?             @relation("LeaveCoverageSubstitute", fields: [substituteTeacherId], references: [id])
+
+  @@unique([leaveId, assignmentId])
+  @@index([studentId])
 }
 
 model RescheduleRequest {
-  id          String               @id @default(uuid())
-  sessionId   String
+  id        String @id @default(uuid())
+  sessionId String
+
+  /// Snapshot jadwal sesi SAAT usulan dibuat. Diperlukan karena approve
+  /// mengubah scheduledAt sesi ke proposedAt — tanpa snapshot ini, riwayat
+  /// yang sudah disetujui tidak bisa lagi menunjukkan "semula jam berapa",
+  /// karena session.scheduledAt sudah menjadi nilai yang sama dengan
+  /// proposedAt.
+  originalScheduledAt DateTime
+
   requestedBy String
   proposedAt  DateTime
   reason      String?
@@ -403,8 +541,46 @@ model TeacherRequest {
   preferredTimes     Json? // {mon: ["15:00-17:00"]}
   note               String?
   status             TeacherRequestStatus @default(pending)
-  handledBy          String?
+  rejectReason       String? // wajib diisi saat status = rejected (divalidasi di API)
+  handledBy          String? // id admin/guru yang me-review
+  handledAt          DateTime?
+  assignmentId       String?              @unique // terisi saat status = approved
   createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  student    User               @relation("TeacherRequestStudent", fields: [studentId], references: [id])
+  teacher    User?              @relation("TeacherRequestTeacher", fields: [teacherId], references: [id])
+  assignment PrivateAssignment? @relation(fields: [assignmentId], references: [id])
+
+  @@index([status, teacherId])
+  @@index([studentId, createdAt])
+}
+
+/// Penugasan murid privat ke guru. Dibuat saat TeacherRequest di-approve dan
+/// menjadi sumber kebenaran relasi guru-murid privat SEBELUM ada jadwal
+/// (PRD F-1: murid tetap terdaftar walau recurring schedule ditunda).
+model PrivateAssignment {
+  id        String                  @id @default(uuid())
+  teacherId String
+  studentId String
+  level     String? // level awal murid privat — bebas, tidak terikat course reguler
+  status    PrivateAssignmentStatus @default(active)
+  notes     String?
+  startedAt DateTime                @default(now())
+  endedAt   DateTime?
+  createdBy String? // id admin/guru yang menyetujui
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  teacher        User                   @relation("PrivateAssignmentTeacher", fields: [teacherId], references: [id])
+  student        User                   @relation("PrivateAssignmentStudent", fields: [studentId], references: [id])
+  request        TeacherRequest?
+  leaveCoverages TeacherLeaveCoverage[]
+
+  // Satu baris per pasangan guru-murid: approve ulang me-reaktifkan baris yang sama.
+  @@unique([teacherId, studentId])
+  @@index([teacherId, status])
+  @@index([studentId, status])
 }
 
 // ===================== PRICING & BILLING =====================
@@ -433,6 +609,10 @@ model SessionCharge {
   session         Session       @relation(fields: [sessionId], references: [id])
   student         User          @relation(fields: [studentId], references: [id])
   invoiceItems    InvoiceItem[]
+
+  /// Cron bundel bulanan mencari charge `pending` milik satu murid dalam
+  /// rentang tanggal; itulah bentuk indeks ini.
+  @@index([studentId, status, createdAt])
 }
 
 model Invoice {
@@ -447,10 +627,21 @@ model Invoice {
   total         Decimal       @db.Decimal(12, 2)
   status        InvoiceStatus @default(draft)
   paidAt        DateTime?
-  createdAt     DateTime      @default(now())
-  student       User          @relation(fields: [studentId], references: [id])
-  items         InvoiceItem[]
-  payments      Payment[]
+
+  /// BR-04.7: invoice yang salah di-void, tidak dihapus. Siapa dan kapan
+  /// tercatat di AuditLog; alasannya di sini supaya ikut terbaca murid.
+  voidReason String?
+  voidedAt   DateTime?
+
+  createdAt DateTime      @default(now())
+  student   User          @relation(fields: [studentId], references: [id])
+  items     InvoiceItem[]
+  payments  Payment[]
+
+  /// Cron harian menyapu invoice yang lewat due date, dan halaman tagihan
+  /// selalu menyaring per murid — dua pola query itu yang diindeks.
+  @@index([status, dueDate])
+  @@index([studentId, status])
 }
 
 model InvoiceItem {
@@ -461,18 +652,41 @@ model InvoiceItem {
   amount          Decimal        @db.Decimal(12, 2)
   invoice         Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   sessionCharge   SessionCharge? @relation(fields: [sessionChargeId], references: [id])
+
+  @@index([invoiceId])
 }
 
 model Payment {
-  id         String        @id @default(uuid())
-  invoiceId  String
-  amount     Decimal       @db.Decimal(12, 2)
-  method     PaymentMethod
-  reference  String?
+  id        String        @id @default(uuid())
+  invoiceId String
+  amount    Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  status    PaymentStatus @default(pending)
+
+  /// Nomor rujukan yang unik lintas kanal: order_id Midtrans untuk Snap,
+  /// nomor rujukan bank untuk transfer manual. Unique-nya yang membuat
+  /// webhook Midtrans idempotent — notifikasi yang sama tidak pernah
+  /// melahirkan baris kedua. NULL boleh berulang di Postgres, jadi
+  /// pembayaran manual tanpa nomor rujukan tetap bisa disimpan.
+  reference String? @unique
+
+  /// Token Snap yang sudah diterbitkan, dipakai ulang selama masih pending
+  /// agar satu invoice tidak menumpuk transaksi gantung di sisi Midtrans.
+  gatewayToken String?
+
   proofUrl   String?
+  note       String?
   verifiedBy String?
-  paidAt     DateTime      @default(now())
-  invoice    Invoice       @relation(fields: [invoiceId], references: [id])
+  verifiedAt DateTime?
+
+  /// Diisi hanya ketika pembayaran benar-benar sah (verified). Berbeda dari
+  /// skema awal yang selalu mengisinya, karena baris pending belum berarti
+  /// uang sudah diterima.
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, status])
 }
 
 // ===================== EARNINGS & PAYOUT =====================
@@ -487,6 +701,11 @@ model SessionEarning {
   session     Session       @relation(fields: [sessionId], references: [id])
   teacher     User          @relation(fields: [teacherId], references: [id])
   payoutItems PayoutItem[]
+
+  /// Halaman upah guru dan antrean persetujuan admin sama-sama menyaring
+  /// upah per guru dan per status; itulah bentuk indeks ini.
+  @@index([teacherId, status])
+  @@index([status, createdAt])
 }
 
 model Payout {
@@ -494,10 +713,20 @@ model Payout {
   teacherId   String
   totalAmount Decimal      @db.Decimal(12, 2)
   status      PayoutStatus @default(requested)
+
+  /// Catatan admin atas keputusannya. Wajib saat menolak, karena guru
+  /// berhak tahu alasan pengajuannya tidak diproses.
+  note        String?
+  requestedAt DateTime  @default(now())
+  decidedAt   DateTime?
   paidAt      DateTime?
   processedBy String?
-  teacher     User         @relation(fields: [teacherId], references: [id])
-  items       PayoutItem[]
+
+  teacher User         @relation(fields: [teacherId], references: [id])
+  items   PayoutItem[]
+
+  @@index([teacherId, status])
+  @@index([status, requestedAt])
 }
 
 model PayoutItem {
@@ -506,6 +735,8 @@ model PayoutItem {
   sessionEarningId String         @unique
   payout           Payout         @relation(fields: [payoutId], references: [id], onDelete: Cascade)
   sessionEarning   SessionEarning @relation(fields: [sessionEarningId], references: [id])
+
+  @@index([payoutId])
 }
 
 // ===================== NOTIFICATION & AUDIT =====================

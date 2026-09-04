@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: lms-tahsin
+
+env:
+  # Placeholder values only — CI never connects to a real database or
+  # signs real sessions, but Prisma client generation and `next build`
+  # both expect these env vars to be present.
+  DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci"
+  DIRECT_URL: "postgresql://ci:ci@localhost:5432/ci"
+  AUTH_SECRET: "ci-placeholder-secret-not-for-production"
+  CRON_SECRET: "ci-placeholder-secret-not-for-production"
+
+jobs:
+  checks:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: lms-tahsin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Generate Next.js route types
+        run: npx next typegen
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

@@ -128,3 +128,86 @@
     @apply font-sans;
   }
 }
+/* ============================================================
+   Brand Tanafus Center — docs/11-brand-guidelines.md
+   Skala plum diturunkan dari teks plum #574B60 = hsl(274 12% 33.5%)
+   (nilai turunan, bukan resmi — ganti di sini bila doc lengkap tersedia)
+   ============================================================ */
+
+:root {
+  --brand-orange-50: #fff4e8;
+  --brand-orange-500: #ff7a00;
+  --brand-orange-600: #e66e00;
+
+  --brand-cream-50: #fbfefb;
+  --brand-cream-100: #efe5dc;
+
+  --brand-plum-50: #f7f5f8;
+  --brand-plum-100: #efecf1;
+  --brand-plum-200: #dcd6e0;
+  --brand-plum-300: #c2b8c9;
+  --brand-plum-400: #9c8da6;
+  --brand-plum-500: #7a6b83;
+  --brand-plum-600: #665a6f;
+  --brand-plum-700: #574b60;
+  --brand-plum-800: #453b4c;
+  --brand-plum-900: #322c38;
+  --brand-plum-950: #201c23;
+}
+
+@theme inline {
+  --color-orange-50: var(--brand-orange-50);
+  --color-orange-500: var(--brand-orange-500);
+  --color-orange-600: var(--brand-orange-600);
+
+  --color-cream-50: var(--brand-cream-50);
+  --color-cream-100: var(--brand-cream-100);
+
+  --color-plum-50: var(--brand-plum-50);
+  --color-plum-100: var(--brand-plum-100);
+  --color-plum-200: var(--brand-plum-200);
+  --color-plum-300: var(--brand-plum-300);
+  --color-plum-400: var(--brand-plum-400);
+  --color-plum-500: var(--brand-plum-500);
+  --color-plum-600: var(--brand-plum-600);
+  --color-plum-700: var(--brand-plum-700);
+  --color-plum-800: var(--brand-plum-800);
+  --color-plum-900: var(--brand-plum-900);
+  --color-plum-950: var(--brand-plum-950);
+}
+
+/* Petakan token semantik shadcn ke palet brand (mode terang — MVP). */
+:root {
+  --background: var(--brand-cream-50);
+  --foreground: var(--brand-plum-700);
+
+  --card: #ffffff;
+  --card-foreground: var(--brand-plum-700);
+  --popover: #ffffff;
+  --popover-foreground: var(--brand-plum-700);
+
+  --primary: var(--brand-orange-500);
+  --primary-foreground: #ffffff;
+
+  --secondary: var(--brand-cream-100);
+  --secondary-foreground: var(--brand-plum-800);
+
+  --muted: var(--brand-cream-100);
+  --muted-foreground: var(--brand-plum-500);
+
+  --accent: var(--brand-orange-50);
+  --accent-foreground: var(--brand-plum-800);
+
+  --border: var(--brand-plum-100);
+  --input: var(--brand-plum-200);
+  --ring: var(--brand-orange-500);
+
+  --sidebar: var(--brand-plum-950);
+  --sidebar-foreground: var(--brand-plum-200);
+  --sidebar-primary: var(--brand-orange-500);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--brand-plum-900);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: var(--brand-plum-900);
+  --sidebar-ring: var(--brand-orange-500);
+}
