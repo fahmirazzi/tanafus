@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { RoleName } from "@/generated/prisma/enums";
 import { USER_LIST_SELECT, buildUserWhere } from "@/lib/users";
 import { userListQuerySchema } from "@/lib/validations/user";
-import { paginationSchema, toPrismaPagination } from "@/lib/api";
+import { DEFAULT_PAGE_SIZE, paginationSchema, toPrismaPagination } from "@/lib/api";
+import { totalPages as calcTotalPages } from "@/lib/pagination-nav";
 import { ROLE_LABEL } from "@/lib/labels";
 import { formatTanggalWIB } from "@/lib/datetime";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PaginationNav } from "@/components/pagination-nav";
 
 export const metadata: Metadata = { title: "Kelola Pengguna" };
 
@@ -58,7 +60,7 @@ export default async function UsersPage({
   });
   const pagination = parsedPagination.success
     ? parsedPagination.data
-    : { page: 1, pageSize: 20 };
+    : { page: 1, pageSize: DEFAULT_PAGE_SIZE };
 
   const where = buildUserWhere(query);
   const [rows, total] = await Promise.all([
@@ -71,16 +73,7 @@ export default async function UsersPage({
     prisma.user.count({ where }),
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pagination.pageSize));
-
-  function pageHref(page: number): string {
-    const next = new URLSearchParams();
-    if (query.q) next.set("q", query.q);
-    if (query.role) next.set("role", query.role);
-    if (query.status) next.set("status", query.status);
-    next.set("page", String(page));
-    return `/admin/users?${next.toString()}`;
-  }
+  const totalPages = calcTotalPages(total, pagination.pageSize);
 
   return (
     <div className="space-y-6">
@@ -212,35 +205,12 @@ export default async function UsersPage({
         </CardContent>
       </Card>
 
-      {totalPages > 1 ? (
-        <div className="flex items-center justify-between text-sm text-plum-500">
-          <span>
-            Halaman {pagination.page} dari {totalPages}
-          </span>
-          <div className="flex gap-2">
-            {pagination.page > 1 ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={pageHref(pagination.page - 1)} />}
-              >
-                Sebelumnya
-              </Button>
-            ) : null}
-            {pagination.page < totalPages ? (
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href={pageHref(pagination.page + 1)} />}
-              >
-                Berikutnya
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      <PaginationNav
+        pathname="/admin/users"
+        params={{ q: query.q, role: query.role, status: query.status }}
+        page={pagination.page}
+        totalPages={totalPages}
+      />
     </div>
   );
 }

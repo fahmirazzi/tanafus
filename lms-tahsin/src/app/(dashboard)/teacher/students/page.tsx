@@ -5,30 +5,61 @@ import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { PrivateAssignmentStatus, RoleName } from "@/generated/prisma/enums";
 import { PRIVATE_ASSIGNMENT_LABEL } from "@/lib/labels";
+import { DEFAULT_PAGE_SIZE } from "@/lib/api";
+import { totalPages as calcTotalPages } from "@/lib/pagination-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PaginationNav } from "@/components/pagination-nav";
 
 export const metadata: Metadata = { title: "Murid Saya" };
 
-/** Daftar murid privat guru, pintu masuk ke riwayat feedback (PRD F-8). */
-export default async function TeacherStudentsPage() {
-  const teacher = await requireRole(RoleName.teacher);
+type SearchParams = Record<string, string | string[] | undefined>;
 
-  const assignments = await prisma.privateAssignment.findMany({
-    where: {
-      teacherId: teacher.id,
-      status: { not: PrivateAssignmentStatus.ended },
-    },
-    select: {
-      status: true,
-      level: true,
-      student: {
-        select: { id: true, fullName: true, suspendedAt: true },
+function one(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw && raw.length > 0 ? raw : undefined;
+}
+
+/** Nilai bukan angka, nol, atau negatif jatuh ke halaman 1. */
+function parsePage(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+/** Daftar murid privat guru, pintu masuk ke riwayat feedback (PRD F-8). */
+export default async function TeacherStudentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const teacher = await requireRole(RoleName.teacher);
+  const params = await searchParams;
+  const page = parsePage(one(params.page));
+
+  const where = {
+    teacherId: teacher.id,
+    status: { not: PrivateAssignmentStatus.ended },
+  };
+
+  const [assignments, total] = await Promise.all([
+    prisma.privateAssignment.findMany({
+      where,
+      select: {
+        status: true,
+        level: true,
+        student: {
+          select: { id: true, fullName: true, suspendedAt: true },
+        },
       },
-    },
-    orderBy: { student: { fullName: "asc" } },
-  });
+      orderBy: { student: { fullName: "asc" } },
+      skip: (page - 1) * DEFAULT_PAGE_SIZE,
+      take: DEFAULT_PAGE_SIZE,
+    }),
+    prisma.privateAssignment.count({ where }),
+  ]);
+
+  const pages = calcTotalPages(total, DEFAULT_PAGE_SIZE);
 
   return (
     <div className="space-y-6">
@@ -93,6 +124,13 @@ export default async function TeacherStudentsPage() {
           ))}
         </div>
       )}
+
+      <PaginationNav
+        pathname="/teacher/students"
+        params={{}}
+        page={page}
+        totalPages={pages}
+      />
     </div>
   );
 }
