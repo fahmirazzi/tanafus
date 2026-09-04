@@ -1,6 +1,13 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
+import {
+  apiError,
+  apiList,
+  apiOk,
+  parsePagination,
+  toPrismaPagination,
+  zodFieldErrors,
+} from "@/lib/api";
 import {
   ForbiddenError,
   handleApiError,
@@ -74,14 +81,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       ...(parsed.data.studentId ? { studentId: parsed.data.studentId } : {}),
     };
 
-    const rows = await prisma.session.findMany({
-      where,
-      select: SESSION_SELECT,
-      orderBy: { scheduledAt: "asc" },
-      take: 500,
-    });
+    const pagination = parsePagination(url);
 
-    return apiOk(rows);
+    // NFR-1 [WAJIB]: daftar tidak boleh mengembalikan seluruh tabel. `take: 500`
+    // yang lama adalah plafon, bukan pagination — kalender guru dengan lebih
+    // dari 500 sesi dalam rentang diam-diam kehilangan sisanya.
+    const [rows, total] = await Promise.all([
+      prisma.session.findMany({
+        where,
+        select: SESSION_SELECT,
+        orderBy: { scheduledAt: "asc" },
+        ...toPrismaPagination(pagination),
+      }),
+      prisma.session.count({ where }),
+    ]);
+
+    return apiList(rows, total, pagination);
   } catch (error) {
     return handleApiError(error);
   }

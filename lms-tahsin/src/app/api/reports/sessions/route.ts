@@ -41,6 +41,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const gte = zonedDateTimeToUtc(from, "00:00");
     const lt = new Date(zonedDateTimeToUtc(to, "00:00").getTime() + 86_400_000);
 
+    // SENGAJA tanpa pagination: ini ekspor CSV, bukan daftar untuk dibaca di
+    // layar. Memenggalnya per 20 baris justru merusak berkas hasil ekspor.
+    // NFR-1 mewajibkan pagination untuk LIST, bukan untuk ekspor.
     const sessions = await prisma.session.findMany({
       where: {
         type: SessionType.private,
