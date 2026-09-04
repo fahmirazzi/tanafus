@@ -92,13 +92,37 @@ sendiri:
    — pastikan keduanya sudah ada sebelum lembaga sungguhan mulai
    mendaftarkan murid.
 
-## 3. Modul yang belum ada di Fase 1
+## 3. Reschedule & cuti panjang guru
 
-Dua bagian PRD (`docs/05-features/prd-private-class.md` modul F-2
-"Reschedule request dari parent" dan modul F-7a "Cuti panjang guru")
-belum diimplementasikan — skema database (`RescheduleRequest`,
-`TeacherLeave`) sudah siap, tapi belum ada route API maupun halaman.
-Lembaga yang butuh salah satu alur ini untuk sekarang menanganinya
-manual di luar sistem (guru langsung menghubungi orang tua untuk usul
-jadwal baru; admin mengatur guru pengganti/jeda jadwal secara manual
-lewat menu Jadwal saat guru cuti panjang).
+Kedua modul PRD yang sebelumnya kosong sudah diimplementasikan penuh
+(route API + UI): F-2 "Reschedule request dari parent" dan F-7a "Cuti
+panjang guru" (BR-06.2–06.4).
+
+**Reschedule (F-2):**
+
+1. **Login ortu1/murid** → menu **Jadwal** → tombol usul reschedule pada
+   sesi yang masih terjadwal → isi tanggal/jam baru & alasan (opsional).
+2. **Login guru1** → menu **Usulan reschedule** → setujui (sesi
+   dipindah ke jadwal baru) atau tolak (wajib isi alasan penolakan).
+   Riwayat menampilkan waktu semula vs waktu yang diusulkan.
+
+**Cuti panjang guru (F-7a):**
+
+1. **Login guru1** → menu **Cuti saya** → ajukan cuti (≥14 hari untuk
+   jenis "panjang", lihat `LONG_LEAVE_MIN_DAYS` di
+   `src/lib/teacher-leave.ts`).
+2. **Login admin** → menu **Cuti guru** → setujui. Untuk cuti panjang,
+   semua jadwal berulang guru tsb dinonaktifkan sementara dan tiap
+   keluarga murid mendapat notifikasi untuk memilih.
+3. **Login ortu1** → menu **Cuti guru anak** → pilih guru pengganti
+   (dicek otomatis tidak bentrok jadwal, BR-06.4) atau jeda jadwal
+   tanpa tagihan sampai guru asli kembali (BR-06.3).
+4. **Login guru1** lagi (setelah masa cuti) → menu **Cuti saya** →
+   ajukan kembali mengajar → **admin** menyetujuinya di menu **Cuti
+   guru**, semua jadwal guru itu otomatis aktif lagi dan sesi 14 hari
+   ke depan langsung digenerate.
+
+Keterbatasan yang disadari: pengecekan bentrok guru pengganti hanya
+memeriksa sesi yang sudah digenerate saat orang tua memilih, bukan
+simulasi penuh setiap kemunculan jadwal berulang sampai akhir cuti
+(lihat komentar di `src/app/api/teacher-leave-coverages/[id]/choice/route.ts`).
