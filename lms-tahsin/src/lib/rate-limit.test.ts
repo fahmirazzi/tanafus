@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { rateLimitKey, rateLimitRuleFor } from "@/lib/rate-limit";
 
 describe("rateLimitRuleFor", () => {
-  it("membatasi endpoint auth 5 per menit per IP (NFR-2)", () => {
+  it("membatasi endpoint registrasi 5 per menit per IP (NFR-2)", () => {
     const rule = rateLimitRuleFor("/api/auth/register");
 
     expect(rule).toEqual({
@@ -10,6 +10,45 @@ describe("rateLimitRuleFor", () => {
       limit: 5,
       windowSeconds: 60,
       scope: "ip",
+    });
+  });
+
+  it("membatasi endpoint login credentials Auth.js 5 per menit per IP (NFR-2)", () => {
+    // Path callback provider credentials Auth.js v5 (@auth/core 0.41.3):
+    // Credentials() SELALU memakai id "credentials" (lihat
+    // node_modules/@auth/core/providers/credentials.js), terlepas dari
+    // `name` yang diberikan di src/lib/auth.ts. Rute callback-nya
+    // /api/auth/callback/:providerId, jadi jalur nyatanya
+    // /api/auth/callback/credentials.
+    const rule = rateLimitRuleFor("/api/auth/callback/credentials");
+
+    expect(rule).toEqual({
+      name: "auth",
+      limit: 5,
+      windowSeconds: 60,
+      scope: "ip",
+    });
+  });
+
+  it("TIDAK membatasi ketat /api/auth/session — dipanggil SessionProvider tiap fokus jendela, bukan percobaan kredensial", () => {
+    const rule = rateLimitRuleFor("/api/auth/session");
+
+    expect(rule).toEqual({
+      name: "api",
+      limit: 100,
+      windowSeconds: 60,
+      scope: "user",
+    });
+  });
+
+  it("TIDAK membatasi ketat /api/auth/csrf — plumbing token CSRF, bukan percobaan kredensial", () => {
+    const rule = rateLimitRuleFor("/api/auth/csrf");
+
+    expect(rule).toEqual({
+      name: "api",
+      limit: 100,
+      windowSeconds: 60,
+      scope: "user",
     });
   });
 

@@ -30,6 +30,12 @@ export default auth(async (req) => {
   // tidak ikut membebani query role di bawah.
   const limitRule = rateLimitRuleFor(pathname);
   if (limitRule) {
+    // Ambil entri PERTAMA x-forwarded-for sebagai IP klien. Ini valid HANYA
+    // karena aplikasi ini berjalan di belakang edge Vercel, yang menimpa
+    // header masuk dan menaruh IP klien terverifikasi di posisi pertama
+    // sebelum meneruskan ke fungsi ini — jadi entri pertama tidak bisa
+    // dipalsukan oleh klien. Di belakang proxy lain (atau proxy tambahan),
+    // entri pertama bisa disisipkan klien sendiri dan jadi rawan spoofing.
     const key = rateLimitKey(limitRule, {
       ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
       userId: req.auth?.user?.id ?? null,
