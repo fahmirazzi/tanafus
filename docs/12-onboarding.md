@@ -59,6 +59,23 @@ sendiri:
    sendiri (disarankan Supabase, sesuai `DATABASE_URL`/`DIRECT_URL` yang
    sudah dipakai proyek ini). Jalankan `prisma migrate deploy` sekali di
    awal.
+
+   **Root Directory wajib `lms-tahsin`** (repo ini bukan proyek Next.js
+   di root). Setelah import, cek **Settings → Build and Deployment →
+   Framework Preset** benar-benar terbaca **Next.js** — beberapa kali
+   percobaan deploy pernah mendeteksinya sebagai "Other", yang bikin
+   Vercel melewati builder Next.js sama sekali dan cuma menyalin
+   `public/` sebagai berkas statis: nol serverless function ke-deploy,
+   SEMUA route (termasuk `/`) 404 di level platform Vercel walau build
+   sukses "Ready". Kalau ini terjadi, ganti Framework Preset ke
+   Next.js secara manual di Project Settings lalu **Redeploy** (bukan
+   deploy baru).
+
+   Setelah deploy, verifikasi lewat `GET /api/health` —
+   `{"ok":true,"db":"up"}` berarti routing dan koneksi database
+   keduanya beres. Kalau `db:"down"`, cek Runtime Logs di dashboard
+   Vercel untuk pesan error Prisma yang persis (biasanya soal query
+   engine binary, lihat catatan di bawah).
 2. **Ganti kredensial demo.** Seed di atas memakai kata sandi seragam dan
    email `@tanafus.test` — JANGAN dipakai di produksi. Buat akun
    super_admin pertama secara manual (lewat `db:seed` yang dimodifikasi,
@@ -96,6 +113,39 @@ sendiri:
    wajib tersedia sebelum rilis publik (lihat NFR-6 di
    `docs/09-non-functional.md`) — pastikan ini dibangun sebelum lembaga
    sungguhan mulai mendaftarkan murid.
+
+### Kalau `/api/health` tetap db:"down" di Vercel
+
+Prisma di runtime serverless Vercel butuh tiga potongan yang saling
+bergantung — proyek ini SUDAH mengaturnya lewat kode, jangan
+dihilangkan saat menyederhanakan konfigurasi:
+
+- **`postinstall` di `package.json` harus menjalankan `prisma
+  generate`.** Vercel meng-cache dependency antar-build; kalau
+  `postinstall` gagal diam-diam (atau tidak ada), client jadi basi
+  tanpa ada yang sadar sampai runtime.
+- **`binaryTargets = ["native", "rhel-openssl-3.0.x"]` di
+  `generator client` (`schema.prisma`).** Tanpa ini, `prisma generate`
+  cuma bikin query engine untuk platform lokal (Windows), bukan untuk
+  Amazon Linux tempat Vercel Functions jalan.
+- **`outputFileTracingIncludes` di `next.config.ts`.** Prisma client
+  di-generate ke `src/generated/prisma` (bukan
+  `node_modules/.prisma/client`), dan file engine `.so.node`-nya
+  dimuat lewat path dinamis saat runtime, bukan `require()` statis —
+  Next.js tidak otomatis tahu harus ikut membundelnya ke fungsi
+  serverless tanpa baris ini.
+- **`PRISMA_QUERY_ENGINE_LIBRARY` di-set manual di `src/lib/prisma.ts`
+  saat `process.env.VERCEL` ada.** Walau ketiga hal di atas sudah
+  benar dan file engine-nya benar-benar ter-deploy, kode Prisma client
+  hasil bundling Turbopack tidak lagi bertetangga fisik dengan folder
+  `generated/prisma` seperti sebelum di-bundle, jadi resolusi path
+  relatif bawaannya meleset satu folder. Override ini melewati
+  logika tebak-lokasi itu sama sekali.
+
+Kalau `/api/health` masih `db:"down"` setelah semua ini benar, cek
+Runtime Logs Vercel untuk pesan Prisma yang persis — errornya biasanya
+menyebutkan lokasi yang sudah dicoba, cukup jelas untuk melacak
+lapisan mana yang bermasalah.
 
 ## 3. Reschedule & cuti panjang guru
 
