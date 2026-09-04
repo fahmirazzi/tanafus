@@ -15,11 +15,8 @@ import {
   zonedDateTimeToUtc,
 } from "@/lib/sessions";
 import { formatTanggalWIB, toTimeInputWIB } from "@/lib/datetime";
-import { DEFAULT_PAGE_SIZE } from "@/lib/api";
-import { totalPages as calcTotalPages } from "@/lib/pagination-nav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PaginationNav } from "@/components/pagination-nav";
 import { OneTimeSessionForm } from "./one-time-session-form";
 import { WeekBoard, type BoardSession } from "./week-board";
 
@@ -34,12 +31,6 @@ function one(value: string | string[] | undefined): string | undefined {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Nilai bukan angka, nol, atau negatif jatuh ke halaman 1. */
-function parsePage(value: string | undefined): number {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
-}
-
 export default async function TeacherSessionsPage({
   searchParams,
 }: {
@@ -53,22 +44,19 @@ export default async function TeacherSessionsPage({
   // Query string yang dikutak-katik jangan sampai membuat halaman gagal.
   const cursor = anchor && ISO_DATE.test(anchor) ? anchor : todayKey;
   const days = weekKeys(cursor);
-  const page = parsePage(one(params.page));
 
   const gte = zonedDateTimeToUtc(days[0], "00:00");
   const lt = new Date(
     zonedDateTimeToUtc(days[days.length - 1], "00:00").getTime() + 86_400_000,
   );
 
-  const sessionsWhere = {
-    type: SessionType.private,
-    teacherId: teacher.id,
-    scheduledAt: { gte, lt },
-  };
-
-  const [sessions, sessionsTotal, assignments, tiers] = await Promise.all([
+  const [sessions, assignments, tiers] = await Promise.all([
     prisma.session.findMany({
-      where: sessionsWhere,
+      where: {
+        type: SessionType.private,
+        teacherId: teacher.id,
+        scheduledAt: { gte, lt },
+      },
       select: {
         id: true,
         scheduledAt: true,
@@ -78,10 +66,7 @@ export default async function TeacherSessionsPage({
         student: { select: { fullName: true } },
       },
       orderBy: { scheduledAt: "asc" },
-      skip: (page - 1) * DEFAULT_PAGE_SIZE,
-      take: DEFAULT_PAGE_SIZE,
     }),
-    prisma.session.count({ where: sessionsWhere }),
     prisma.privateAssignment.findMany({
       where: {
         teacherId: teacher.id,
@@ -96,8 +81,6 @@ export default async function TeacherSessionsPage({
       orderBy: { durationMinutes: "asc" },
     }),
   ]);
-
-  const sessionsPages = calcTotalPages(sessionsTotal, DEFAULT_PAGE_SIZE);
 
   // Date dan Decimal tidak bisa menyeberang ke client component apa adanya,
   // jadi jam sudah diformat WIB di server.
@@ -162,13 +145,6 @@ export default async function TeacherSessionsPage({
       </div>
 
       <WeekBoard days={days} sessions={board} todayKey={todayKey} />
-
-      <PaginationNav
-        pathname="/teacher/sessions"
-        params={{ week: anchor }}
-        page={page}
-        totalPages={sessionsPages}
-      />
 
       <Card>
         <CardHeader>

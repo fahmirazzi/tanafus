@@ -24,6 +24,10 @@ export function PaginationNav({
   page,
   totalPages,
 }: PaginationNavProps) {
+  // Hanya satu halaman (atau kurang) — tidak ada gunanya menampilkan nav
+  // dengan dua tombol nonaktif dan "Halaman 1 dari 1".
+  if (totalPages <= 1) return null;
+
   return (
     <div className="flex items-center justify-between text-sm text-plum-500">
       <span>
