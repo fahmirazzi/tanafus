@@ -21,6 +21,7 @@ import {
   FileSpreadsheet,
   UserRound,
   Inbox,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -104,6 +105,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.teacher],
   },
   {
+    href: "/teacher/reschedule-requests",
+    label: "Usulan reschedule",
+    icon: RefreshCw,
+    roles: [RoleName.teacher],
+  },
+  {
     href: "/teacher/students",
     label: "Murid saya",
     icon: GraduationCap,
@@ -131,6 +138,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/parent",
     label: "Dashboard",
     icon: LayoutDashboard,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
+    href: "/parent/schedule",
+    label: "Jadwal",
+    icon: CalendarDays,
     roles: [RoleName.parent, RoleName.student],
   },
   {

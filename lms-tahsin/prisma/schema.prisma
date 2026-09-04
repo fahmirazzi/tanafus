@@ -468,8 +468,16 @@ model TeacherLeave {
 }
 
 model RescheduleRequest {
-  id          String               @id @default(uuid())
-  sessionId   String
+  id        String @id @default(uuid())
+  sessionId String
+
+  /// Snapshot jadwal sesi SAAT usulan dibuat. Diperlukan karena approve
+  /// mengubah scheduledAt sesi ke proposedAt — tanpa snapshot ini, riwayat
+  /// yang sudah disetujui tidak bisa lagi menunjukkan "semula jam berapa",
+  /// karena session.scheduledAt sudah menjadi nilai yang sama dengan
+  /// proposedAt.
+  originalScheduledAt DateTime
+
   requestedBy String
   proposedAt  DateTime
   reason      String?
