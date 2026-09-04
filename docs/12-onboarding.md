@@ -78,7 +78,12 @@ sendiri:
    engine binary, lihat catatan di bawah). Respons ini sekarang juga
    memuat blok `crons` yang melaporkan kesegaran tiap job terjadwal;
    `stale: true` pada `generate_sessions` berarti kalender sesi sudah
-   berhenti terisi, meskipun `ok` dan `db` tetap sehat.
+   berhenti terisi, meskipun `ok` dan `db` tetap sehat. Kalau query
+   kesegaran cron sendiri gagal (mis. tabel `CronRun` belum ada karena
+   `prisma migrate deploy` di langkah ini belum dijalankan), `crons`
+   bernilai `null` — tetap dengan `ok:true`, `db:"up"`; itu artinya
+   status cron belum bisa dibaca, BUKAN berarti semua job basi atau
+   aplikasi mati.
 2. **Ganti kredensial demo.** Seed di atas memakai kata sandi seragam dan
    email `@tanafus.test` — JANGAN dipakai di produksi. Buat akun
    super_admin pertama secara manual (lewat `db:seed` yang dimodifikasi,
