@@ -45,7 +45,7 @@ tua langsung terisi untuk 14 hari ke depan.
    lahir (BR-04.1). Isi form feedback di halaman yang sama.
 3. **Login ortu1** → menu **Tagihan** menampilkan invoice yang baru
    terbit, tombol kirim bukti transfer tersedia (bayar online butuh
-   `MIDTRANS_SERVER_KEY`/`MIDTRANS_CLIENT_KEY` di `.env`, lihat §3).
+   `MIDTRANS_SERVER_KEY`/`MIDTRANS_CLIENT_KEY` di `.env`, lihat §2.3).
 4. **Login admin** → menu **Tagihan** untuk memverifikasi bukti transfer
    tadi, menu **Upah & payout** untuk menyetujui upah guru1.
 5. **Login guru1** lagi → menu **Upah saya** → ajukan pencairan.
@@ -86,11 +86,12 @@ sendiri:
    - Undang orang tua/murid mendaftar sendiri lewat halaman registrasi,
      atau buatkan admin lewat menu **Pengguna** dan tautkan
      orang tua–anak.
-6. **Kebijakan privasi & persetujuan.** NFR mewajibkan checkbox
-   persetujuan kebijakan privasi saat registrasi dan fitur hapus akun /
-   export data sebelum rilis publik (lihat `docs/09-non-functional.md`)
-   — pastikan keduanya sudah ada sebelum lembaga sungguhan mulai
-   mendaftarkan murid.
+6. **Kebijakan privasi & persetujuan.** Checkbox persetujuan kebijakan
+   privasi di halaman registrasi (UU PDP) sudah ada. Yang BELUM ada:
+   fitur hapus akun dan export data milik sendiri, yang menurut NFR
+   wajib tersedia sebelum rilis publik (lihat NFR-6 di
+   `docs/09-non-functional.md`) — pastikan ini dibangun sebelum lembaga
+   sungguhan mulai mendaftarkan murid.
 
 ## 3. Reschedule & cuti panjang guru
 
