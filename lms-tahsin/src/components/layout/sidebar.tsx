@@ -22,6 +22,7 @@ import {
   UserRound,
   Inbox,
   RefreshCw,
+  Plane,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -60,6 +61,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/admin/requests",
     label: "Permintaan",
     icon: Inbox,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/leaves",
+    label: "Cuti guru",
+    icon: Plane,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
@@ -123,6 +130,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     roles: [RoleName.teacher],
   },
   {
+    href: "/teacher/leave",
+    label: "Cuti saya",
+    icon: Plane,
+    roles: [RoleName.teacher],
+  },
+  {
     href: "/teacher/earnings",
     label: "Upah saya",
     icon: HandCoins,
@@ -168,6 +181,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/parent/breaks",
     label: "Libur",
     icon: CalendarOff,
+    roles: [RoleName.parent, RoleName.student],
+  },
+  {
+    href: "/parent/leave-coverage",
+    label: "Cuti guru anak",
+    icon: Plane,
     roles: [RoleName.parent, RoleName.student],
   },
   {

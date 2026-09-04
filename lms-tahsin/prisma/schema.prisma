@@ -192,6 +192,9 @@ model User {
   invoices                    Invoice[]
   earnings                    SessionEarning[]
   payouts                     Payout[]
+  teacherLeavesAsTeacher      TeacherLeave[]             @relation("TeacherLeaveTeacher")
+  leaveCoveragesAsStudent     TeacherLeaveCoverage[]     @relation("LeaveCoverageStudent")
+  leaveCoveragesAsSubstitute  TeacherLeaveCoverage[]     @relation("LeaveCoverageSubstitute")
 }
 
 model Role {
@@ -453,18 +456,61 @@ model StudentBreak {
   @@index([studentId, status])
 }
 
+/// Cuti guru, pendek maupun panjang (BR-06, roadmap "Leave management").
+///
+/// Cuti pendek (BR-06.1) tidak butuh apa pun di sini selain baris riwayat —
+/// guru cukup meliburkan sesi satu per satu lewat aksi status sesi biasa.
+/// Baris ini betul-betul dipakai hanya untuk cuti panjang (type=long):
+/// koordinasi per-murid ada di TeacherLeaveCoverage, bukan di sini, karena
+/// BR-06.3 mensyaratkan SETIAP orang tua memilih sendiri (substitute atau
+/// pause) — satu guru cuti bisa punya sepuluh murid dengan sepuluh
+/// keputusan berbeda, bukan satu keputusan untuk semuanya.
 model TeacherLeave {
-  id                  String      @id @default(uuid())
-  teacherId           String
-  type                LeaveType
-  reason              String
-  startDate           DateTime    @db.Date
-  endDate             DateTime?   @db.Date
-  resolution          String? // substitute | pause | cancelled
+  id                String      @id @default(uuid())
+  teacherId         String
+  type              LeaveType
+  reason            String
+  startDate         DateTime    @db.Date
+  endDate           DateTime?   @db.Date
+  status            LeaveStatus @default(pending)
+  approvedBy        String?
+  approvedAt        DateTime?
+  /// Guru mengajukan "kembali aktif" (PRD F-7a) — diisi saat pengajuan
+  /// masuk, dibaca oleh endpoint approve-return, dikosongkan lagi kalau
+  /// admin menolaknya (guru boleh mengajukan ulang).
+  returnRequestedAt DateTime?
+  /// Diisi saat guru mengajukan "kembali aktif" dan admin menyetujuinya.
+  endedAt           DateTime?
+  createdAt         DateTime    @default(now())
+
+  teacher   User                   @relation("TeacherLeaveTeacher", fields: [teacherId], references: [id])
+  coverages TeacherLeaveCoverage[]
+
+  @@index([teacherId, status])
+}
+
+/// Keputusan SATU keluarga atas cuti panjang guru anaknya (BR-06.3/06.4).
+/// Dibuat satu baris per PrivateAssignment aktif begitu admin menyetujui
+/// cuti panjang, dengan choice masih null — orang tua yang mengisinya.
+model TeacherLeaveCoverage {
+  id                  String    @id @default(uuid())
+  leaveId             String
+  assignmentId        String
+  studentId           String
+  /// null = orang tua belum memilih. "substitute" | "pause" sesudahnya.
+  choice              String?
   substituteTeacherId String?
-  status              LeaveStatus @default(pending)
-  approvedBy          String?
-  createdAt           DateTime    @default(now())
+  decidedBy           String?
+  decidedAt           DateTime?
+  createdAt           DateTime  @default(now())
+
+  leave      TeacherLeave      @relation(fields: [leaveId], references: [id])
+  assignment PrivateAssignment @relation(fields: [assignmentId], references: [id])
+  student    User              @relation("LeaveCoverageStudent", fields: [studentId], references: [id])
+  substitute User?             @relation("LeaveCoverageSubstitute", fields: [substituteTeacherId], references: [id])
+
+  @@unique([leaveId, assignmentId])
+  @@index([studentId])
 }
 
 model RescheduleRequest {
@@ -526,9 +572,10 @@ model PrivateAssignment {
   createdAt DateTime                @default(now())
   updatedAt DateTime                @updatedAt
 
-  teacher User            @relation("PrivateAssignmentTeacher", fields: [teacherId], references: [id])
-  student User            @relation("PrivateAssignmentStudent", fields: [studentId], references: [id])
-  request TeacherRequest?
+  teacher        User                   @relation("PrivateAssignmentTeacher", fields: [teacherId], references: [id])
+  student        User                   @relation("PrivateAssignmentStudent", fields: [studentId], references: [id])
+  request        TeacherRequest?
+  leaveCoverages TeacherLeaveCoverage[]
 
   // Satu baris per pasangan guru-murid: approve ulang me-reaktifkan baris yang sama.
   @@unique([teacherId, studentId])
