@@ -1,4 +1,21 @@
+import path from "path";
 import { PrismaClient } from "@/generated/prisma/client";
+
+/**
+ * Di Vercel, kode client hasil bundling Turbopack tidak lagi bertetangga
+ * langsung dengan file generated/prisma seperti sebelum di-bundle, jadi
+ * resolusi path relatif bawaan Prisma untuk query engine meleset satu
+ * folder (mencari .../src/generated, bukan .../src/generated/prisma) —
+ * walau file .so.node-nya sendiri terbukti ikut ter-deploy dengan benar
+ * (dipaksa lewat outputFileTracingIncludes di next.config.ts). Override
+ * langsung ke path absolut supaya Prisma tidak perlu menebak.
+ */
+if (process.env.VERCEL && !process.env.PRISMA_QUERY_ENGINE_LIBRARY) {
+  process.env.PRISMA_QUERY_ENGINE_LIBRARY = path.join(
+    process.cwd(),
+    "src/generated/prisma/libquery_engine-rhel-openssl-3.0.x.so.node",
+  );
+}
 
 /**
  * Singleton Prisma client.
