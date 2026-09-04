@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { getAdminUserIds } from "@/lib/notifications";
-import type { CronJobName } from "@/lib/cron-runs";
+import { redactError, type CronJobName } from "@/lib/cron-runs";
 
 /** Kirim email kegagalan ke semua admin/super admin aktif yang punya email. */
 async function alertAdmins(job: CronJobName, error: unknown): Promise<void> {
@@ -20,7 +20,7 @@ async function alertAdmins(job: CronJobName, error: unknown): Promise<void> {
         sendEmail({
           to: admin.email,
           subject: `[Tanafus] Cron gagal: ${job}`,
-          html: `<p>Job <strong>${job}</strong> gagal dijalankan.</p><pre>${String(error)}</pre><p>Cek Runtime Logs dan jalankan ulang manual bila perlu.</p>`,
+          html: `<p>Job <strong>${job}</strong> gagal dijalankan.</p><pre>${redactError(error)}</pre><p>Cek Runtime Logs dan jalankan ulang manual bila perlu.</p>`,
         }),
       ),
   );
@@ -28,11 +28,19 @@ async function alertAdmins(job: CronJobName, error: unknown): Promise<void> {
 
 /**
  * Bungkus satu eksekusi cron: catat mulai, catat hasil, dan pada kegagalan
- * kirim email ke admin sebelum melempar ulang. Error TETAP dilempar supaya
- * response HTTP-nya 500 dan penjadwal tahu percobaannya gagal.
+ * kirim email ke admin sebelum melempar ulang. Error ASLI TETAP dilempar
+ * supaya response HTTP-nya 500 dan penjadwal tahu percobaannya gagal.
  *
- * sendEmail tidak pernah melempar (lihat email.ts), jadi kegagalan kirim
- * email tidak akan menutupi error asli yang sedang dilaporkan.
+ * PENTING: bookkeeping pada kegagalan (update baris CronRun jadi ok:false,
+ * dan alertAdmins) masing-masing dibungkus try/catch SENDIRI-SENDIRI di
+ * bawah. alertAdmins melakukan query ke database sendiri
+ * (prisma.user.findMany) -- beda dengan sendEmail yang tidak pernah
+ * melempar (lihat email.ts) -- jadi kalau database sedang down, error asli
+ * dari `fn()` bisa saja "digantikan" oleh error koneksi baru yang muncul
+ * saat mencoba menulis ke database yang sama. Itu justru menghilangkan
+ * diagnosis yang NFR-3 ingin dijaga. Dengan membungkus bookkeeping secara
+ * terpisah, kegagalan di salah satunya hanya dicatat lewat console.error
+ * terstruktur dan TIDAK PERNAH menggantikan atau menelan error asli.
  */
 export async function recordCronRun<T>(
   job: CronJobName,
@@ -55,11 +63,36 @@ export async function recordCronRun<T>(
     });
     return result;
   } catch (error) {
-    await prisma.cronRun.update({
-      where: { id: run.id },
-      data: { finishedAt: new Date(), ok: false, error: String(error) },
-    });
-    await alertAdmins(job, error);
+    try {
+      await prisma.cronRun.update({
+        where: { id: run.id },
+        data: { finishedAt: new Date(), ok: false, error: redactError(error) },
+      });
+    } catch (updateError) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          msg: "cron_run_update_failed",
+          job,
+          error: redactError(updateError),
+        }),
+      );
+    }
+
+    try {
+      await alertAdmins(job, error);
+    } catch (alertError) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          msg: "cron_alert_admins_failed",
+          job,
+          error: redactError(alertError),
+        }),
+      );
+    }
+
+    // Error asli -- BUKAN updateError/alertError -- yang wajib dilempar ulang.
     throw error;
   }
 }
