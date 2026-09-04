@@ -6,7 +6,8 @@ import {
   checkDeletionEligibility,
   deletionExecuteAfter,
 } from "@/lib/account-deletion";
-import { InvoiceStatus, EarningStatus } from "@/generated/prisma/enums";
+import { EarningStatus } from "@/generated/prisma/enums";
+import { PAYABLE_INVOICE_STATUSES } from "@/lib/invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,16 @@ export async function POST(): Promise<NextResponse> {
   try {
     const user = await requireAuth();
 
+    // Race yang diketahui: findFirst lalu create bukan operasi atomik, jadi dua
+    // POST bersamaan bisa lolos guard ini dan sama-sama membuat baris pending.
+    // Dampaknya dibatasi: cron anonimisasi cukup menimpa akun yang sudah
+    // teranonimisasi (idempoten), GET menampilkan satu saja, dan DELETE
+    // membatalkan keduanya sekaligus lewat updateMany. Unique index parsial
+    // (userId WHERE status='pending') sengaja TIDAK dipakai — Prisma tidak
+    // bisa menyatakan filtered unique index di schema.prisma, sehingga index
+    // itu harus ditulis sebagai SQL mentah yang tidak terlihat oleh Prisma,
+    // dan setiap `prisma migrate dev` berikutnya akan melaporkan drift lalu
+    // menawarkan "memperbaikinya" (menghapusnya).
     const existing = await prisma.accountDeletionRequest.findFirst({
       where: { userId: user.id, status: "pending" },
       select: { id: true },
@@ -41,7 +52,7 @@ export async function POST(): Promise<NextResponse> {
       prisma.invoice.count({
         where: {
           studentId: user.id,
-          status: { in: [InvoiceStatus.issued, InvoiceStatus.overdue] },
+          status: { in: [...PAYABLE_INVOICE_STATUSES] },
         },
       }),
       prisma.sessionEarning.count({
