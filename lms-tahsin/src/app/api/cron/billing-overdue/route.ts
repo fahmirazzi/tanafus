@@ -3,6 +3,7 @@ import { apiError, apiOk } from "@/lib/api";
 import { handleApiError } from "@/lib/auth-guard";
 import { runOverdueSweep } from "@/lib/billing-overdue";
 import { isCronAuthorized } from "@/lib/cron-auth";
+import { recordCronRun } from "@/lib/cron-runs-recorder";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const startedAt = Date.now();
-    const summary = await runOverdueSweep();
+    const summary = await recordCronRun("billing_overdue", () =>
+      runOverdueSweep(),
+    );
 
     console.log(
       JSON.stringify({

@@ -2,6 +2,7 @@ import type { NextRequest, NextResponse } from "next/server";
 import { apiError, apiOk } from "@/lib/api";
 import { handleApiError } from "@/lib/auth-guard";
 import { isCronAuthorized } from "@/lib/cron-auth";
+import { recordCronRun } from "@/lib/cron-runs-recorder";
 import { sendDueReminders } from "@/lib/session-reminders";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const startedAt = Date.now();
-    const summary = await sendDueReminders();
+    const summary = await recordCronRun("send_reminders", () =>
+      sendDueReminders(),
+    );
 
     console.log(
       JSON.stringify({

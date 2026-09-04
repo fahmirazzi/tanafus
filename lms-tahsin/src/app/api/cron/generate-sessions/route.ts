@@ -2,6 +2,7 @@ import type { NextRequest, NextResponse } from "next/server";
 import { apiError, apiOk } from "@/lib/api";
 import { handleApiError } from "@/lib/auth-guard";
 import { isCronAuthorized } from "@/lib/cron-auth";
+import { recordCronRun } from "@/lib/cron-runs-recorder";
 import { generateUpcomingSessions } from "@/lib/session-generator";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const startedAt = Date.now();
-    const summary = await generateUpcomingSessions();
+    const summary = await recordCronRun("generate_sessions", () =>
+      generateUpcomingSessions(),
+    );
 
     console.log(
       JSON.stringify({
