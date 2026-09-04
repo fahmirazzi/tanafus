@@ -29,7 +29,17 @@ export async function GET(): Promise<NextResponse> {
           },
         }),
         prisma.session.findMany({
-          where: { studentId: user.id },
+          // Session.studentId hanya terisi untuk sesi privat. Untuk Kelas
+          // Reguler, murid terhubung ke sesi lewat SessionAttendance (relasi
+          // "attendances"), bukan lewat kolom studentId (yang NULL di sana).
+          // OR ini WAJIB ada agar ekspor tidak diam-diam kehilangan sesi
+          // reguler — jangan disederhanakan jadi satu filter saja.
+          where: {
+            OR: [
+              { studentId: user.id },
+              { attendances: { some: { studentId: user.id } } },
+            ],
+          },
           select: {
             id: true,
             scheduledAt: true,
