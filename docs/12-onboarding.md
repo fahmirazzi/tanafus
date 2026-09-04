@@ -74,11 +74,15 @@ sendiri:
      admin. Isi belakangan kapan saja tanpa perlu ubah kode.
    - `RESEND_API_KEY`, `EMAIL_FROM` (opsional) — tanpa ini, notifikasi
      tetap jalan penuh lewat in-app, hanya kanal email yang tidak aktif.
-4. **Cron jobs.** `vercel.json` sudah mendaftarkan keempatnya (generator
-   sesi, pengingat, overdue harian, bundel bulanan). Paket Vercel Hobby
-   membatasi frekuensi cron harian — kalau memakainya, jalankan pengingat
-   (yang perlu tiap beberapa menit) lewat pemicu luar seperti
-   cron-job.org, dengan header `Authorization: Bearer $CRON_SECRET`.
+4. **Cron jobs.** `vercel.json` mendaftarkan tiga yang harian/bulanan
+   (generator sesi, overdue harian, bundel bulanan) — semuanya jalan di
+   paket Vercel Hobby. **Pengingat H-1 jam/H-5 menit sengaja TIDAK
+   didaftarkan di `vercel.json`**: jadwalnya `*/5 * * * *` (tiap 5
+   menit), dan Hobby cuma mengizinkan cron harian — mendaftarkannya di
+   sana bikin deploy ditolak. Jalankan lewat pemicu luar seperti
+   cron-job.org yang memanggil `POST /api/cron/send-reminders` tiap 5
+   menit dengan header `Authorization: Bearer $CRON_SECRET`. Kalau
+   lembaga upgrade ke paket Pro, boleh dipindah balik ke `vercel.json`.
 5. **Data operasional lembaga**, isi lewat UI sebagai admin (bukan seed):
    - Menu **Tarif** — pricing tier per durasi sesi (BR-03.1).
    - Menu **Pengguna** — buat akun guru, lalu guru melengkapi profil

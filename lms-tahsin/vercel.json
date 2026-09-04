@@ -5,10 +5,6 @@
       "schedule": "0 21 * * *"
     },
     {
-      "path": "/api/cron/send-reminders",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/billing-overdue",
       "schedule": "0 22 * * *"
     },
