@@ -3,7 +3,9 @@ import { prisma, TX_OPTIONS } from "@/lib/prisma";
 import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
 import { assertCanAccess, handleApiError, requireAuth } from "@/lib/auth-guard";
 import { writeAudit } from "@/lib/audit";
+import { formatTanggalJamWIB } from "@/lib/datetime";
 import { createNotifications, getStudentAudienceIds } from "@/lib/notifications";
+import { findSessionConflict } from "@/lib/sessions";
 import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { leaveCoverageChoiceSchema } from "@/lib/validations/teacher-leave";
 import { LeaveStatus, SessionStatus } from "@/generated/prisma/enums";
@@ -13,12 +15,15 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * Keputusan satu keluarga atas cuti panjang guru anaknya (BR-06.3/06.4).
  *
- * KETERBATASAN YANG DISADARI: memilih "substitute" tidak memeriksa apakah
- * guru pengganti kebetulan sudah punya sesi lain pada slot yang sama.
- * Pengecekan bentrok penuh butuh melihat setiap kemunculan jadwal berulang
- * ke depan, bukan satu pasangan waktu — di luar cakupan wajar perubahan
- * ini. Admin yang menempatkan guru pengganti diharapkan tahu jadwalnya
- * sendiri, sama seperti penempatan substitute manual di luar sistem.
+ * KETERBATASAN YANG DISADARI: memilih "substitute" hanya memeriksa bentrok
+ * pada sesi yang SUDAH digenerate dalam rentang cuti saat pilihan ini
+ * dikirim (findSessionConflict, titik waktu konkret) — bukan simulasi
+ * penuh setiap kemunculan jadwal berulang sampai akhir cuti. Sesi yang
+ * baru muncul dari cron generator BELAKANGAN tidak ikut tercek di sini;
+ * session-generator.ts sendiri tidak menolak slot bentrok saat membuat
+ * sesi baru. Cukup untuk menangkap kasus paling umum — substitute yang
+ * kebetulan sudah mengajar murid lain persis di jam yang sama pada sesi
+ * yang sudah ada — tanpa pekerjaan simulasi tanggal yang jauh lebih besar.
  */
 export async function POST(
   req: NextRequest,
@@ -89,6 +94,43 @@ export async function POST(
       ? new Date(coverage.leave.endDate.getTime() + 86_400_000)
       : null;
 
+    // Sesi yang sudah terlanjur digenerate dalam rentang cuti ini, yang
+    // masih menduduki waktunya (belum selesai/batal) — dipakai untuk cek
+    // bentrok (substitute) dan untuk tahu apa yang perlu diubah nanti.
+    const sessionsInRange = await prisma.session.findMany({
+      where: {
+        teacherId: coverage.leave.teacherId,
+        studentId: coverage.studentId,
+        status: { in: [SessionStatus.scheduled, SessionStatus.in_progress] },
+        scheduledAt: {
+          gte: coverage.leave.startDate,
+          ...(rangeEnd ? { lt: rangeEnd } : {}),
+        },
+      },
+      select: { id: true, scheduledAt: true, durationMinutes: true },
+    });
+
+    if (choice === "substitute") {
+      // Konflik ditolak DI LUAR transaksi, sebelum apa pun ditulis — sama
+      // seperti PATCH reschedule langsung.
+      for (const session of sessionsInRange) {
+        const conflict = await findSessionConflict({
+          teacherId: substituteTeacherId as string,
+          studentId: coverage.studentId,
+          scheduledAt: session.scheduledAt,
+          durationMinutes: session.durationMinutes,
+          excludeId: session.id,
+        });
+        if (conflict) {
+          return apiError(
+            `Guru pengganti sudah mengajar ${conflict.student?.fullName ?? "murid lain"} pada ${formatTanggalJamWIB(session.scheduledAt)}. Pilih guru lain.`,
+            422,
+            { substituteTeacherId: "Guru ini sudah punya sesi lain di jam yang sama" },
+          );
+        }
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.teacherLeaveCoverage.update({
         where: { id },
@@ -108,21 +150,6 @@ export async function POST(
         newData: { choice, substituteTeacherId: substituteTeacherId ?? null },
       });
 
-      // Sesi yang sudah terlanjur digenerate dalam rentang cuti ini, yang
-      // masih menduduki waktunya (belum selesai/batal).
-      const futureSessions = await tx.session.findMany({
-        where: {
-          teacherId: coverage.leave.teacherId,
-          studentId: coverage.studentId,
-          status: { in: [SessionStatus.scheduled, SessionStatus.in_progress] },
-          scheduledAt: {
-            gte: coverage.leave.startDate,
-            ...(rangeEnd ? { lt: rangeEnd } : {}),
-          },
-        },
-        select: { id: true },
-      });
-
       if (choice === "substitute") {
         // BR-06.4: jadwal murid ini dinyalakan lagi supaya generator
         // meneruskan pembuatan sesi selama cuti — session-generator.ts
@@ -132,9 +159,9 @@ export async function POST(
           data: { isActive: true },
         });
 
-        if (futureSessions.length > 0) {
+        if (sessionsInRange.length > 0) {
           await tx.session.updateMany({
-            where: { id: { in: futureSessions.map((s) => s.id) } },
+            where: { id: { in: sessionsInRange.map((s) => s.id) } },
             data: { substituteTeacherId },
           });
         }
@@ -142,9 +169,9 @@ export async function POST(
         // pause: jadwal TETAP nonaktif (sudah begitu sejak leave disetujui).
         // Sesi yang terlanjur ada dibatalkan tanpa tagihan (BR-01.3) —
         // guru berhalangan, bukan murid yang membatalkan.
-        if (futureSessions.length > 0) {
+        if (sessionsInRange.length > 0) {
           await tx.session.updateMany({
-            where: { id: { in: futureSessions.map((s) => s.id) } },
+            where: { id: { in: sessionsInRange.map((s) => s.id) } },
             data: { status: SessionStatus.cancelled_teacher },
           });
         }
