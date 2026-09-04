@@ -75,7 +75,10 @@ sendiri:
    `{"ok":true,"db":"up"}` berarti routing dan koneksi database
    keduanya beres. Kalau `db:"down"`, cek Runtime Logs di dashboard
    Vercel untuk pesan error Prisma yang persis (biasanya soal query
-   engine binary, lihat catatan di bawah).
+   engine binary, lihat catatan di bawah). Respons ini sekarang juga
+   memuat blok `crons` yang melaporkan kesegaran tiap job terjadwal;
+   `stale: true` pada `generate_sessions` berarti kalender sesi sudah
+   berhenti terisi, meskipun `ok` dan `db` tetap sehat.
 2. **Ganti kredensial demo.** Seed di atas memakai kata sandi seragam dan
    email `@tanafus.test` — JANGAN dipakai di produksi. Buat akun
    super_admin pertama secara manual (lewat `db:seed` yang dimodifikasi,
