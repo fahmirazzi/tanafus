@@ -168,6 +168,11 @@ model User {
   suspendedAt      DateTime?
   suspensionReason String?
 
+  /// NFR-6: akun yang sudah dianonimkan. Barisnya TIDAK dihapus karena
+  /// invoice, charge, earning, dan audit log menahannya lewat foreign key
+  /// (onDelete: Restrict) — dan BR-10.4 memang mewajibkan jejak itu bertahan.
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -196,6 +201,7 @@ model User {
   teacherLeavesAsTeacher      TeacherLeave[]             @relation("TeacherLeaveTeacher")
   leaveCoveragesAsStudent     TeacherLeaveCoverage[]     @relation("LeaveCoverageStudent")
   leaveCoveragesAsSubstitute  TeacherLeaveCoverage[]     @relation("LeaveCoverageSubstitute")
+  deletionRequests            AccountDeletionRequest[]
 }
 
 model Role {
@@ -807,4 +813,22 @@ model CronRun {
 
   /// Pola query satu-satunya: sukses terakhir per job.
   @@index([job, ok, startedAt])
+}
+
+/// Permintaan hapus akun dengan masa tenggang (NFR-6).
+/// Tenggang ada supaya salah klik pada akun yang masih punya tagihan
+/// terbuka tidak langsung menghapus identitas pembayarnya.
+model AccountDeletionRequest {
+  id            String    @id @default(uuid())
+  userId        String
+  requestedAt   DateTime  @default(now())
+  executeAfter  DateTime
+  status        String    @default("pending") // pending | cancelled | executed | blocked
+  blockedBy     String?
+  blockedReason String?
+  executedAt    DateTime?
+  user          User      @relation(fields: [userId], references: [id])
+
+  /// Cron menyapu yang pending dan sudah lewat tenggang.
+  @@index([status, executeAfter])
 }
