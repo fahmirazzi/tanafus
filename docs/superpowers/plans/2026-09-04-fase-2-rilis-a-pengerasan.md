@@ -312,7 +312,7 @@ Expected: ketiganya lulus. Sentry tidak aktif karena DSN kosong; peringatan `sen
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/observability.ts src/lib/observability.test.ts instrumentation.ts sentry.client.config.ts .env package.json package-lock.json
+git add src/lib/observability.ts src/lib/observability.test.ts instrumentation.ts sentry.client.config.ts package.json package-lock.json
 git commit -m "feat(lms): pasang Sentry dengan scrubbing PII (NFR-4 A-1)"
 ```
 
@@ -509,7 +509,7 @@ Expected: kedua header muncul; yang CSP adalah varian `-Report-Only`.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/lib/security-headers.ts src/lib/security-headers.test.ts next.config.ts .env
+git add src/lib/security-headers.ts src/lib/security-headers.test.ts next.config.ts
 git commit -m "feat(lms): security headers + CSP report-only (NFR-2 A-2)"
 ```
 
@@ -801,7 +801,7 @@ Expected TANPA Upstash: semua `422` (fail-open, tidak ada pembatasan). Dengan `U
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/lib/rate-limit.ts src/lib/rate-limit.test.ts src/lib/rate-limit-client.ts src/middleware.ts package.json package-lock.json .env
+git add src/lib/rate-limit.ts src/lib/rate-limit.test.ts src/lib/rate-limit-client.ts src/middleware.ts package.json package-lock.json
 git commit -m "feat(lms): rate limiting Upstash untuk auth dan API (NFR-2 A-3)"
 ```
 
