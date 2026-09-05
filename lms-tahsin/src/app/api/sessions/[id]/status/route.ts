@@ -172,12 +172,16 @@ export async function POST(
         ? formatTanggalJamWIB(makeupScheduledAt)
         : null;
 
-      // BR-09.2: peristiwa sesi reguler menyebar ke SELURUH murid aktif
-      // beserta wali, ditambah guru yang benar-benar mengajar kelas ini.
-      const audience = [
-        ...(await getClassAudienceIds(session.classGroupId)),
-        earnerId,
-      ];
+      // BR-09: peristiwa sesi reguler menyebar ke murid aktif + wali.
+      // Untuk cancel_institution, guru TIDAK diikutsertakan karena yang
+      // melakukan pembatalan adalah guru itu sendiri — tidak perlu tahu
+      // tentang aksi yang baru saja dia lakukan (BR-09: tabel membedakan
+      // pembatalan/penjadwalan dari reminder H-1).
+      const baseAudience = await getClassAudienceIds(session.classGroupId);
+      const audience =
+        regularAction === "cancel_institution"
+          ? baseAudience
+          : [...baseAudience, earnerId];
 
       const result = await prisma.$transaction(async (tx) => {
         await tx.session.update({
