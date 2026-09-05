@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { authConfig } from "@/lib/auth.config";
 import { homeForRoles, rolesInclude } from "@/lib/roles";
 import { RoleName } from "@/generated/prisma/enums";
+import { rateLimitKey, rateLimitRuleFor } from "@/lib/rate-limit";
+import { checkRateLimit } from "@/lib/rate-limit-client";
 
 const { auth } = NextAuth(authConfig);
 
@@ -21,8 +23,31 @@ const AUTHENTICATED_ROUTES = ["/notifications"];
 
 const AUTH_PAGES = ["/login", "/register"];
 
-export default auth((req) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl;
+
+  // NFR-2: batasi laju sebelum guard role, supaya percobaan brute force
+  // tidak ikut membebani query role di bawah.
+  const limitRule = rateLimitRuleFor(pathname);
+  if (limitRule) {
+    // Ambil entri PERTAMA x-forwarded-for sebagai IP klien. Ini valid HANYA
+    // karena aplikasi ini berjalan di belakang edge Vercel, yang menimpa
+    // header masuk dan menaruh IP klien terverifikasi di posisi pertama
+    // sebelum meneruskan ke fungsi ini — jadi entri pertama tidak bisa
+    // dipalsukan oleh klien. Di belakang proxy lain (atau proxy tambahan),
+    // entri pertama bisa disisipkan klien sendiri dan jadi rawan spoofing.
+    const key = rateLimitKey(limitRule, {
+      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+      userId: req.auth?.user?.id ?? null,
+    });
+    if (key && !(await checkRateLimit(key, limitRule))) {
+      return NextResponse.json(
+        { ok: false, error: "Terlalu banyak permintaan. Coba lagi sebentar." },
+        { status: 429 },
+      );
+    }
+  }
+
   const roles = req.auth?.user?.roles ?? [];
   const isLoggedIn = Boolean(req.auth?.user?.id);
 
@@ -63,6 +88,7 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
+    "/api/:path*",
     "/admin/:path*",
     "/teacher/:path*",
     "/parent/:path*",

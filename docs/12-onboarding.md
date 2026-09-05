@@ -75,7 +75,15 @@ sendiri:
    `{"ok":true,"db":"up"}` berarti routing dan koneksi database
    keduanya beres. Kalau `db:"down"`, cek Runtime Logs di dashboard
    Vercel untuk pesan error Prisma yang persis (biasanya soal query
-   engine binary, lihat catatan di bawah).
+   engine binary, lihat catatan di bawah). Respons ini sekarang juga
+   memuat blok `crons` yang melaporkan kesegaran tiap job terjadwal;
+   `stale: true` pada `generate_sessions` berarti kalender sesi sudah
+   berhenti terisi, meskipun `ok` dan `db` tetap sehat. Kalau query
+   kesegaran cron sendiri gagal (mis. tabel `CronRun` belum ada karena
+   `prisma migrate deploy` di langkah ini belum dijalankan), `crons`
+   bernilai `null` — tetap dengan `ok:true`, `db:"up"`; itu artinya
+   status cron belum bisa dibaca, BUKAN berarti semua job basi atau
+   aplikasi mati.
 2. **Ganti kredensial demo.** Seed di atas memakai kata sandi seragam dan
    email `@tanafus.test` — JANGAN dipakai di produksi. Buat akun
    super_admin pertama secara manual (lewat `db:seed` yang dimodifikasi,
@@ -91,9 +99,26 @@ sendiri:
      admin. Isi belakangan kapan saja tanpa perlu ubah kode.
    - `RESEND_API_KEY`, `EMAIL_FROM` (opsional) — tanpa ini, notifikasi
      tetap jalan penuh lewat in-app, hanya kanal email yang tidak aktif.
-4. **Cron jobs.** `vercel.json` mendaftarkan tiga yang harian/bulanan
-   (generator sesi, overdue harian, bundel bulanan) — semuanya jalan di
-   paket Vercel Hobby. **Pengingat H-1 jam/H-5 menit sengaja TIDAK
+   - `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` (opsional) — endpoint pelaporan
+     error ke Sentry, sisi server dan sisi klien. Tanpa keduanya, aplikasi
+     tetap jalan penuh; error hanya tercatat di log Vercel, tidak
+     terkirim ke Sentry.
+   - `SECURITY_CSP_ENFORCE` (opsional) — set `true` untuk mengubah
+     Content-Security-Policy dari mode report-only menjadi mode blokir
+     sungguhan. Tanpa ini (default), CSP hanya melaporkan pelanggaran
+     tanpa memblokirnya — pantau laporannya dulu satu rilis penuh (lewat
+     `POST /api/csp-report`) sebelum menyalakan mode blokir.
+   - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (opsional) —
+     backend rate limiting lewat Upstash Redis. **Tanpa keduanya TIDAK ADA
+     rate limiting sama sekali** — `checkRateLimit` sengaja fail-open
+     (lihat `src/lib/rate-limit-client.ts`) supaya akun Upstash yang
+     hilang tidak bisa menjatuhkan login. Ini bukan fallback in-memory;
+     mengonfigurasi Upstash WAJIB dilakukan untuk benar-benar memenuhi
+     NFR-2 di produksi.
+4. **Cron jobs.** `vercel.json` mendaftarkan empat yang harian/bulanan
+   (generator sesi, overdue harian, bundel bulanan, eksekusi penghapusan
+   akun) — semuanya jalan di paket Vercel Hobby. **Pengingat H-1 jam/H-5
+   menit sengaja TIDAK
    didaftarkan di `vercel.json`**: jadwalnya `*/5 * * * *` (tiap 5
    menit), dan Hobby cuma mengizinkan cron harian — mendaftarkannya di
    sana bikin deploy ditolak. Jalankan lewat pemicu luar seperti
@@ -108,11 +133,18 @@ sendiri:
      atau buatkan admin lewat menu **Pengguna** dan tautkan
      orang tua–anak.
 6. **Kebijakan privasi & persetujuan.** Checkbox persetujuan kebijakan
-   privasi di halaman registrasi (UU PDP) sudah ada. Yang BELUM ada:
-   fitur hapus akun dan export data milik sendiri, yang menurut NFR
-   wajib tersedia sebelum rilis publik (lihat NFR-6 di
-   `docs/09-non-functional.md`) — pastikan ini dibangun sebelum lembaga
-   sungguhan mulai mendaftarkan murid.
+   privasi di halaman registrasi (UU PDP) sudah ada. Fitur hapus akun
+   (`POST /api/account/deletion-request`, bisa dibatalkan dengan
+   `DELETE` selama masa tenggang) dan export data milik sendiri
+   (`GET /api/account/export`) juga sudah ada, memenuhi NFR-6 di
+   `docs/09-non-functional.md`. Penghapusan BUKAN hard delete —
+   akunnya dianonimkan (nama, email, telepon, dll dikosongkan) 7 hari
+   setelah diajukan, supaya jejak keuangan (invoice, charge, earning,
+   audit log) tetap bertahan sesuai BR-10.4. Anonimisasi ini dieksekusi
+   oleh cron `process-deletions`, jadi pastikan itu terdaftar di
+   `vercel.json` (lihat poin 4) — tanpa cron ini, permintaan penghapusan
+   akan menumpuk sebagai `pending` dan tidak pernah benar-benar
+   dieksekusi.
 
 ### Kalau `/api/health` tetap db:"down" di Vercel
 

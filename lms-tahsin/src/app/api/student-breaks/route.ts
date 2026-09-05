@@ -1,6 +1,13 @@
 import type { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
+import {
+  apiError,
+  apiList,
+  apiOk,
+  parsePagination,
+  toPrismaPagination,
+  zodFieldErrors,
+} from "@/lib/api";
 import {
   ForbiddenError,
   handleApiError,
@@ -79,16 +86,23 @@ async function scopeForViewer(
   return { OR: or };
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireAuth();
-    const rows = await prisma.studentBreak.findMany({
-      where: await scopeForViewer(user),
-      select: BREAK_SELECT,
-      orderBy: [{ status: "asc" }, { startDate: "desc" }],
-      take: 100,
-    });
-    return apiOk(rows);
+    const pagination = parsePagination(new URL(req.url));
+    const where = await scopeForViewer(user);
+
+    const [rows, total] = await Promise.all([
+      prisma.studentBreak.findMany({
+        where,
+        select: BREAK_SELECT,
+        orderBy: [{ status: "asc" }, { startDate: "desc" }],
+        ...toPrismaPagination(pagination),
+      }),
+      prisma.studentBreak.count({ where }),
+    ]);
+
+    return apiList(rows, total, pagination);
   } catch (error) {
     return handleApiError(error);
   }

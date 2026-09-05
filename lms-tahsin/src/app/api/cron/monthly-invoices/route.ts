@@ -2,6 +2,7 @@ import type { NextRequest, NextResponse } from "next/server";
 import { apiError, apiOk } from "@/lib/api";
 import { handleApiError } from "@/lib/auth-guard";
 import { isCronAuthorized } from "@/lib/cron-auth";
+import { recordCronRun } from "@/lib/cron-runs-recorder";
 import { runMonthlyBundle } from "@/lib/invoice-issuer";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const startedAt = Date.now();
-    const summary = await runMonthlyBundle();
+    const summary = await recordCronRun("monthly_invoices", () =>
+      runMonthlyBundle(),
+    );
 
     console.log(
       JSON.stringify({

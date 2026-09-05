@@ -5,30 +5,64 @@ import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { PrivateAssignmentStatus, RoleName } from "@/generated/prisma/enums";
 import { PRIVATE_ASSIGNMENT_LABEL } from "@/lib/labels";
+import { DEFAULT_PAGE_SIZE, paginationSchema, toPrismaPagination } from "@/lib/api";
+import { totalPages as calcTotalPages } from "@/lib/pagination-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PaginationNav } from "@/components/pagination-nav";
 
 export const metadata: Metadata = { title: "Murid Saya" };
 
-/** Daftar murid privat guru, pintu masuk ke riwayat feedback (PRD F-8). */
-export default async function TeacherStudentsPage() {
-  const teacher = await requireRole(RoleName.teacher);
+type SearchParams = Record<string, string | string[] | undefined>;
 
-  const assignments = await prisma.privateAssignment.findMany({
-    where: {
-      teacherId: teacher.id,
-      status: { not: PrivateAssignmentStatus.ended },
-    },
-    select: {
-      status: true,
-      level: true,
-      student: {
-        select: { id: true, fullName: true, suspendedAt: true },
-      },
-    },
-    orderBy: { student: { fullName: "asc" } },
+function one(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw && raw.length > 0 ? raw : undefined;
+}
+
+/** Daftar murid privat guru, pintu masuk ke riwayat feedback (PRD F-8). */
+export default async function TeacherStudentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const teacher = await requireRole(RoleName.teacher);
+  const params = await searchParams;
+
+  // Query string tidak valid diperlakukan sebagai "halaman 1", bukan error
+  // -- sama seperti admin/users/page.tsx, memakai skema pagination bersama
+  // supaya aturan validasi dan defaultnya tidak dobel-diimplementasikan.
+  const parsedPagination = paginationSchema.safeParse({
+    page: one(params.page),
+    pageSize: one(params.pageSize),
   });
+  const pagination = parsedPagination.success
+    ? parsedPagination.data
+    : { page: 1, pageSize: DEFAULT_PAGE_SIZE };
+
+  const where = {
+    teacherId: teacher.id,
+    status: { not: PrivateAssignmentStatus.ended },
+  };
+
+  const [assignments, total] = await Promise.all([
+    prisma.privateAssignment.findMany({
+      where,
+      select: {
+        status: true,
+        level: true,
+        student: {
+          select: { id: true, fullName: true, suspendedAt: true },
+        },
+      },
+      orderBy: { student: { fullName: "asc" } },
+      ...toPrismaPagination(pagination),
+    }),
+    prisma.privateAssignment.count({ where }),
+  ]);
+
+  const pages = calcTotalPages(total, pagination.pageSize);
 
   return (
     <div className="space-y-6">
@@ -93,6 +127,13 @@ export default async function TeacherStudentsPage() {
           ))}
         </div>
       )}
+
+      <PaginationNav
+        pathname="/teacher/students"
+        params={{}}
+        page={pagination.page}
+        totalPages={pages}
+      />
     </div>
   );
 }
