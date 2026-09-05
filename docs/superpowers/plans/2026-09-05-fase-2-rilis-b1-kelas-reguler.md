@@ -221,9 +221,13 @@ Expected: memuat `CREATE TABLE "Module"`, `CREATE TABLE "Lesson"`, `CREATE TABLE
 
 Lalu baca balik dari database. `npx prisma db execute` TIDAK mencetak hasil, jadi pakai skrip Node sekali pakai:
 
-```js
-// scratch-verify.mjs — HAPUS setelah dipakai, jangan di-commit
-import { PrismaClient } from "./src/generated/prisma/client/index.js";
+Client Prisma di proyek ini adalah TypeScript (`src/generated/prisma/client.ts`),
+jadi `node` polos tidak bisa mengimpornya. Pakai resolver yang sudah dipakai
+seed — lihat `package.json` script `db:seed`.
+
+```ts
+// scratch-verify.ts — HAPUS setelah dipakai, jangan di-commit
+import { PrismaClient } from "@/generated/prisma/client";
 const p = new PrismaClient();
 const cols = await p.$queryRaw`
   SELECT table_name, column_name FROM information_schema.columns
@@ -238,9 +242,10 @@ console.table(idx);
 await p.$disconnect();
 ```
 
-Run: `node --env-file-if-exists=.env scratch-verify.mjs`
+Run: `node --import ./prisma/register-ts-resolver.mjs --env-file-if-exists=.env scratch-verify.ts`
 Expected: seluruh kolom di atas muncul, DAN indeks unik pada Session ada.
-Laporkan daftar kolom yang benar-benar terbaca. Lalu: `rm scratch-verify.mjs`
+Laporkan daftar kolom yang benar-benar terbaca — "migrasi sukses" BUKAN jawaban
+yang bisa diterima. Lalu: `rm scratch-verify.ts`
 
 - [ ] **Step 5: Verifikasi dan commit**
 
@@ -503,8 +508,39 @@ git commit -m "feat(lms): aturan status sesi reguler + pisahkan charge dari earn
 - Create: `src/lib/class-schedule.test.ts`
 
 **Interfaces:**
-- Consumes: helper tanggal dari `@/lib/sessions` (`zonedDayOfWeek`, `zonedDateTimeToUtc`) — TAPI lihat catatan kemurnian di Step 3
-- Produces: `type ClassScheduleInput`, `type RegularCandidate = { classGroupId: string; teacherId: string; scheduledAt: Date; durationMinutes: number; meetingUrl: string | null }`, `shouldSkipClassGroup(input): string | null`, `regularCandidateDateKeys(input): string[]`
+- Consumes: `zonedDayOfWeek` dari `@/lib/zoned-date` (modul MURNI baru yang dibuat di Step 0)
+- Produces: `type RegularCandidate = { classGroupId: string; teacherId: string; scheduledAt: Date; durationMinutes: number; meetingUrl: string | null }`, `shouldSkipClassGroup(input): "classGroupClosed" | "noEnrollment" | "deletedUser" | null`, `regularCandidateDateKeys(input): string[]`
+
+- [ ] **Step 0: Pisahkan helper tanggal murni (WAJIB, blocker)**
+
+`src/lib/sessions.ts:1` mengimpor `@/lib/prisma`. Kalau `class-schedule.ts`
+mengimpor helper tanggal dari sana, `class-schedule.test.ts` akan menyeret
+`PrismaClient` ke test runner secara transitif dan tidak akan jalan.
+
+Buat `src/lib/zoned-date.ts` dan PINDAHKAN ke sana helper tanggal murni yang
+sekarang ada di `sessions.ts` — `zonedDateKey`, `zonedDayOfWeek`,
+`zonedDateTimeToUtc`, `upcomingDateKeys`, `dateKeyWithinRange` (pindahkan yang
+memang ada; jangan menciptakan yang tidak ada). Berkas ini TIDAK boleh
+mengimpor apa pun dari `@/lib/prisma`.
+
+Lalu di `sessions.ts`, RE-EXPORT semuanya supaya tidak ada satu pun pemanggil
+lama yang perlu diubah:
+
+```ts
+export {
+  zonedDateKey,
+  zonedDayOfWeek,
+  zonedDateTimeToUtc,
+  upcomingDateKeys,
+  dateKeyWithinRange,
+} from "@/lib/zoned-date";
+```
+
+Run: `npm run typecheck && npm test`
+Expected: bersih, 201 test tetap lulus. Kalau ada yang merah, sebuah helper
+ikut terbawa padahal tidak murni — kembalikan dan laporkan.
+
+Run: `grep -n "lib/prisma" src/lib/zoned-date.ts` → tidak ada hasil.
 
 - [ ] **Step 1: Tulis test yang gagal**
 
@@ -615,10 +651,10 @@ Expected: FAIL — `Cannot find module '@/lib/class-schedule'`
 
 - [ ] **Step 3: Tulis implementasi**
 
-Buat `src/lib/class-schedule.ts`. Berkas ini WAJIB murni: cek dulu bahwa `@/lib/sessions` tidak mengimpor `@/lib/prisma` (`grep -n "lib/prisma" src/lib/sessions.ts`). Kalau ternyata mengimpor, jangan mengimpornya dari sini — salin `zonedDayOfWeek` yang dibutuhkan lewat parameter, dan catat itu di laporan.
+Buat `src/lib/class-schedule.ts`, mengimpor dari modul murni yang dibuat di Step 0:
 
 ```ts
-import { zonedDayOfWeek } from "@/lib/sessions";
+import { zonedDayOfWeek } from "@/lib/zoned-date";
 
 /**
  * Aturan pemilihan kandidat sesi reguler (spec B1 §4).
@@ -680,8 +716,8 @@ Expected: PASS, 9 test
 
 - [ ] **Step 5: Verifikasi kemurnian dan commit**
 
-Run: `grep -n "lib/prisma" src/lib/class-schedule.ts src/lib/sessions.ts`
-Expected: tidak ada hasil. Kalau `sessions.ts` ternyata mengimpor prisma, hentikan dan laporkan — berarti Step 3 perlu jalur tanpa impor itu.
+Run: `grep -n "lib/prisma" src/lib/class-schedule.ts src/lib/zoned-date.ts`
+Expected: tidak ada hasil pada kedua berkas. Keduanya WAJIB murni.
 
 Run: `npm test && npm run typecheck && npm run lint`
 Expected: 210 test lulus, typecheck dan lint bersih.
