@@ -11,6 +11,11 @@ import {
   SessionType,
   SimpleApprovalStatus,
 } from "@/generated/prisma/enums";
+import {
+  regularCandidateDateKeys,
+  shouldSkipClassGroup,
+  type RegularCandidate,
+} from "@/lib/class-schedule";
 
 export const GENERATOR_WINDOW_DAYS = 14;
 
@@ -26,6 +31,19 @@ export type GenerationSummary = {
     deletedUser: number;
     alreadyExists: number;
     inThePast: number;
+  };
+  /** Sesi kelas reguler — dihitung terpisah supaya masalahnya terbaca sendiri. */
+  regular: {
+    schedulesConsidered: number;
+    created: number;
+    skipped: {
+      classGroupClosed: number;
+      noEnrollment: number;
+      deletedUser: number;
+      alreadyExists: number;
+      inThePast: number;
+      outsidePeriod: number;
+    };
   };
 };
 
@@ -199,6 +217,146 @@ export async function generateUpcomingSessions(
     }
   }
 
+  // === KANDIDAT REGULER ===
+  //
+  // CATATAN PENEMPATAN: blok ini sengaja diletakkan SEBELUM `summary` privat
+  // dirakit (bukan sesudah dedupe privat) karena blok privat di bawah punya
+  // dua `return summary` dini (candidates.length === 0, fresh.length === 0).
+  // Kalau kandidat reguler dikumpulkan setelah titik itu, jendela tanpa
+  // kandidat privat sama sekali akan membuat reguler tidak pernah diproses.
+  // Jalur privat di atas TIDAK diubah sama sekali — hanya titik sisip yang
+  // berbeda dari urutan di brief.
+  //
+  // Sengaja TIDAK mewarisi tiga penyaring milik privat:
+  // - StudentBreak: BR-07 ditulis untuk privat, dan sesi kohort tidak bisa
+  //   dibatalkan karena satu keluarga pergi.
+  // - Suspensi: BR-04.6b — tunggakan memblokir pendaftaran periode berikutnya,
+  //   bukan menghentikan kohort yang sedang berjalan.
+  // - Cuti panjang guru: kohort tidak punya pilihan per keluarga seperti
+  //   BR-06.3; admin memindahkan teacherId atau membatalkan sesinya.
+  const classSchedules = await prisma.classGroupSchedule.findMany({
+    where: { isActive: true },
+    select: {
+      classGroupId: true,
+      dayOfWeek: true,
+      startTime: true,
+      durationMinutes: true,
+      meetingUrl: true,
+      classGroup: {
+        select: {
+          id: true,
+          status: true,
+          teacherId: true,
+          teacher: { select: { deletedAt: true } },
+          period: { select: { startDate: true, endDate: true } },
+          _count: { select: { enrollments: { where: { status: "active" } } } },
+        },
+      },
+    },
+  });
+
+  const regularSkipped = {
+    classGroupClosed: 0,
+    noEnrollment: 0,
+    deletedUser: 0,
+    alreadyExists: 0,
+    inThePast: 0,
+    outsidePeriod: 0,
+  };
+
+  const regularCandidates: RegularCandidate[] = [];
+
+  for (const schedule of classSchedules) {
+    const group = schedule.classGroup;
+
+    const skip = shouldSkipClassGroup({
+      status: group.status,
+      activeEnrollmentCount: group._count.enrollments,
+      teacherDeleted: group.teacher.deletedAt !== null,
+    });
+    if (skip) {
+      regularSkipped[skip] += 1;
+      continue;
+    }
+
+    const matching = regularCandidateDateKeys({
+      windowDateKeys: dateKeys,
+      dayOfWeek: schedule.dayOfWeek,
+      periodStart: zonedDateKey(group.period.startDate),
+      periodEnd: zonedDateKey(group.period.endDate),
+    });
+    regularSkipped.outsidePeriod += dateKeys.filter(
+      (key) => zonedDayOfWeek(key) === schedule.dayOfWeek,
+    ).length - matching.length;
+
+    for (const dateKey of matching) {
+      const scheduledAt = zonedDateTimeToUtc(dateKey, schedule.startTime);
+      if (scheduledAt.getTime() < now.getTime()) {
+        regularSkipped.inThePast += 1;
+        continue;
+      }
+      regularCandidates.push({
+        classGroupId: group.id,
+        teacherId: group.teacherId,
+        scheduledAt,
+        durationMinutes: schedule.durationMinutes,
+        meetingUrl: schedule.meetingUrl,
+      });
+    }
+  }
+
+  let regularCreated = 0;
+
+  if (regularCandidates.length > 0) {
+    const existingRegular = await prisma.session.findMany({
+      where: {
+        classGroupId: {
+          in: [...new Set(regularCandidates.map((c) => c.classGroupId))],
+        },
+        scheduledAt: {
+          gte: new Date(
+            Math.min(...regularCandidates.map((c) => c.scheduledAt.getTime())),
+          ),
+          lte: new Date(
+            Math.max(...regularCandidates.map((c) => c.scheduledAt.getTime())),
+          ),
+        },
+      },
+      select: { classGroupId: true, scheduledAt: true },
+    });
+
+    const takenRegular = new Set(
+      existingRegular.map(
+        (s) => `${s.classGroupId}@${s.scheduledAt.getTime()}`,
+      ),
+    );
+
+    const freshRegular = regularCandidates.filter((c) => {
+      const key = `${c.classGroupId}@${c.scheduledAt.getTime()}`;
+      if (takenRegular.has(key)) {
+        regularSkipped.alreadyExists += 1;
+        return false;
+      }
+      takenRegular.add(key);
+      return true;
+    });
+
+    if (freshRegular.length > 0) {
+      const insertedRegular = await prisma.session.createMany({
+        data: freshRegular.map((c) => ({
+          type: SessionType.regular,
+          classGroupId: c.classGroupId,
+          teacherId: c.teacherId,
+          scheduledAt: c.scheduledAt,
+          durationMinutes: c.durationMinutes,
+          meetingUrl: c.meetingUrl,
+        })),
+        skipDuplicates: true,
+      });
+      regularCreated = insertedRegular.count;
+    }
+  }
+
   const summary: GenerationSummary = {
     windowDays: days,
     fromDate: dateKeys[0] ?? zonedDateKey(now),
@@ -206,6 +364,11 @@ export async function generateUpcomingSessions(
     schedulesConsidered: schedules.length,
     created: 0,
     skipped,
+    regular: {
+      schedulesConsidered: classSchedules.length,
+      created: regularCreated,
+      skipped: regularSkipped,
+    },
   };
 
   if (candidates.length === 0) return summary;
