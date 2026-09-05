@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DELETION_STATUS,
+  canCancelDeletionRequest,
+  familyEligibility,
+  isPendingReview,
   DELETION_GRACE_DAYS,
   buildAnonymizedUserData,
   checkDeletionEligibility,
@@ -121,5 +125,73 @@ describe("buildAnonymizedUserData", () => {
 
     expect(data.isActive).toBe(false);
     expect(data.deletedAt).toBe(now);
+  });
+});
+
+describe("DELETION_STATUS", () => {
+  it("memuat status baru untuk permintaan yang menunggu admin", () => {
+    expect(DELETION_STATUS.awaitingAdmin).toBe("awaiting_admin");
+  });
+
+  it("memakai kembali `blocked` untuk penolakan admin, bukan status baru", () => {
+    // blockedBy/blockedReason sudah ada di schema sejak Task 8; menolak
+    // permintaan adalah persis kasus yang dua kolom itu modelkan.
+    expect(DELETION_STATUS.blocked).toBe("blocked");
+  });
+});
+
+describe("isPendingReview", () => {
+  it("true hanya untuk permintaan yang menunggu admin", () => {
+    expect(isPendingReview("awaiting_admin")).toBe(true);
+  });
+
+  it("false untuk status lain, termasuk yang sudah disetujui", () => {
+    for (const status of ["pending", "cancelled", "executed", "blocked"]) {
+      expect(isPendingReview(status)).toBe(false);
+    }
+  });
+});
+
+describe("canCancelDeletionRequest", () => {
+  it("boleh dibatalkan selama masih menunggu admin", () => {
+    expect(canCancelDeletionRequest("awaiting_admin")).toBe(true);
+  });
+
+  it("boleh dibatalkan selama masih dalam masa tenggang", () => {
+    expect(canCancelDeletionRequest("pending")).toBe(true);
+  });
+
+  it("TIDAK boleh dibatalkan setelah dieksekusi -- anonimisasi tidak bisa dibalik", () => {
+    expect(canCancelDeletionRequest("executed")).toBe(false);
+  });
+
+  it("TIDAK boleh dibatalkan bila sudah ditolak atau dibatalkan", () => {
+    expect(canCancelDeletionRequest("blocked")).toBe(false);
+    expect(canCancelDeletionRequest("cancelled")).toBe(false);
+  });
+});
+
+describe("familyEligibility", () => {
+  const ok = { allowed: true, reason: null };
+
+  it("mengizinkan bila setiap anggota keluarga lolos", () => {
+    expect(familyEligibility([ok, ok])).toEqual(ok);
+  });
+
+  it("menolak seluruh permintaan bila SATU anggota masih punya tanggungan", () => {
+    const blocked = { allowed: false, reason: "Masih ada tagihan" };
+
+    expect(familyEligibility([ok, blocked, ok])).toEqual(blocked);
+  });
+
+  it("mengembalikan alasan anggota pertama yang bermasalah, bukan menggabungkannya", () => {
+    const first = { allowed: false, reason: "alasan pertama" };
+    const second = { allowed: false, reason: "alasan kedua" };
+
+    expect(familyEligibility([first, second]).reason).toBe("alasan pertama");
+  });
+
+  it("daftar kosong dianggap lolos -- tidak ada yang menghalangi", () => {
+    expect(familyEligibility([])).toEqual(ok);
   });
 });

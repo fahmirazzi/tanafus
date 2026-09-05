@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { buildAnonymizedUserData, isDeletionDue } from "@/lib/account-deletion";
+import {
+  DELETION_STATUS,
+  buildAnonymizedUserData,
+  isDeletionDue,
+} from "@/lib/account-deletion";
 import { PrivateAssignmentStatus } from "@/generated/prisma/enums";
 
 /**
@@ -15,13 +19,18 @@ export async function executeDueDeletions(
   now: Date,
 ): Promise<{ examined: number; anonymized: number }> {
   const due = await prisma.accountDeletionRequest.findMany({
-    where: { status: "pending", executeAfter: { lte: now } },
+    where: { status: DELETION_STATUS.pending, executeAfter: { lte: now } },
     select: { id: true, userId: true, executeAfter: true },
   });
 
   let anonymized = 0;
 
   for (const request of due) {
+    // executeAfter nullable sejak permintaan lewat admin diperkenalkan: yang
+    // masih `awaiting_admin` belum punya tanggal eksekusi. Filter `lte` di
+    // atas sudah tidak pernah mencocokkan null, jadi baris ini semata-mata
+    // penjaga tipe — sekaligus tetap benar bila filternya berubah kelak.
+    if (!request.executeAfter) continue;
     if (!isDeletionDue(request.executeAfter, now)) continue;
 
     await prisma.$transaction(async (tx) => {
