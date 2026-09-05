@@ -146,6 +146,11 @@ enum PrivateAssignmentStatus {
   ended
 }
 
+enum ClassAudience {
+  children
+  adult
+}
+
 // ===================== USER & ROLE =====================
 
 model User {
@@ -202,6 +207,7 @@ model User {
   leaveCoveragesAsStudent     TeacherLeaveCoverage[]     @relation("LeaveCoverageStudent")
   leaveCoveragesAsSubstitute  TeacherLeaveCoverage[]     @relation("LeaveCoverageSubstitute")
   deletionRequests            AccountDeletionRequest[]
+  classGroupsAsTeacher        ClassGroup[]               @relation("ClassGroupTeacher")
 }
 
 model Role {
@@ -250,15 +256,21 @@ model TeacherProfile {
 // ===================== COURSE (fondasi fase 2) =====================
 
 model Course {
-  id                   String       @id @default(uuid())
+  id                   String  @id @default(uuid())
   name                 String
-  slug                 String       @unique
+  slug                 String  @unique
   description          String?
   levelNumber          Int?
   deliveryType         String // periodic | self_paced | public_kajian
   prerequisiteCourseId String?
-  isActive             Boolean      @default(true)
-  classGroups          ClassGroup[]
+  isActive             Boolean @default(true)
+
+  /// BR-02.6: ambang kehadiran syarat naik level, ditentukan per course.
+  /// Belum dipakai sampai B4; ditaruh sekarang karena memang milik course.
+  attendanceThresholdPct Decimal @default(75) @db.Decimal(5, 2)
+
+  classGroups ClassGroup[]
+  modules     Module[]
 }
 
 model AcademicPeriod {
@@ -273,17 +285,27 @@ model AcademicPeriod {
 }
 
 model ClassGroup {
-  id          String         @id @default(uuid())
-  courseId    String
-  periodId    String
-  name        String
-  capacity    Int            @default(15)
-  price       Decimal        @db.Decimal(12, 2)
-  status      String         @default("open") // open | closed | archived
-  course      Course         @relation(fields: [courseId], references: [id])
-  period      AcademicPeriod @relation(fields: [periodId], references: [id])
-  sessions    Session[]
-  enrollments Enrollment[]
+  id        String        @id @default(uuid())
+  courseId  String
+  periodId  String
+  name      String
+  capacity  Int           @default(15)
+  price     Decimal       @db.Decimal(12, 2)
+  status    String        @default("open") // open | closed | archived
+  teacherId String
+  audience  ClassAudience
+
+  /// BR-05.5: honor flat per sesi terlaksana. Di ClassGroup, bukan di
+  /// TeacherProfile: honor mengikuti kelasnya (level, jumlah murid, durasi),
+  /// dan satu ustadz bisa mengajar halaqah pemula dan lanjutan dengan tarif
+  /// berbeda. Di-snapshot ke SessionEarning saat dibuat (sejalan BR-03.4).
+  honorPerSession Decimal              @db.Decimal(12, 2)
+  course          Course               @relation(fields: [courseId], references: [id])
+  period          AcademicPeriod       @relation(fields: [periodId], references: [id])
+  teacher         User                 @relation("ClassGroupTeacher", fields: [teacherId], references: [id])
+  sessions        Session[]
+  enrollments     Enrollment[]
+  schedules       ClassGroupSchedule[]
 }
 
 model Enrollment {
@@ -292,10 +314,65 @@ model Enrollment {
   classGroupId String
   status       String     @default("active") // active | completed | dropped | suspended
   finalGrade   Decimal?   @db.Decimal(5, 2)
+  enrolledAt   DateTime   @default(now())
+  droppedAt    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
   student      User       @relation(fields: [studentId], references: [id])
   classGroup   ClassGroup @relation(fields: [classGroupId], references: [id])
 
   @@unique([studentId, classGroupId])
+}
+
+/// Pengelompokan silabus di bawah sebuah course.
+model Module {
+  id         String   @id @default(uuid())
+  courseId   String
+  title      String
+  orderIndex Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  course     Course   @relation(fields: [courseId], references: [id])
+  lessons    Lesson[]
+
+  @@index([courseId, orderIndex])
+}
+
+/// Daun silabus. Fase 3 menggantungkan berkas materi di sini.
+model Lesson {
+  id         String    @id @default(uuid())
+  moduleId   String
+  title      String
+  orderIndex Int
+  summary    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  module     Module    @relation(fields: [moduleId], references: [id])
+  sessions   Session[]
+
+  @@index([moduleId, orderIndex])
+}
+
+/// Slot mingguan tetap sebuah kelas reguler.
+///
+/// Meniru PrivateRecurringSchedule TAPI tanpa effectiveFrom/effectiveUntil:
+/// kelas reguler sudah dibatasi AcademicPeriod, dan dua sumber kebenaran untuk
+/// jendela yang sama adalah cara termudah menghasilkan sesi di luar akhir
+/// semester.
+model ClassGroupSchedule {
+  id              String     @id @default(uuid())
+  classGroupId    String
+  dayOfWeek       Int // 0=Minggu .. 6=Sabtu
+  startTime       String // "16:00", waktu lokal Asia/Jakarta
+  durationMinutes Int
+  meetingUrl      String?
+  isActive        Boolean    @default(true)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  classGroup      ClassGroup @relation(fields: [classGroupId], references: [id])
+
+  @@unique([classGroupId, dayOfWeek, startTime])
+  @@index([classGroupId, isActive])
 }
 
 // ===================== SESSIONS (inti) =====================
@@ -307,6 +384,7 @@ model Session {
   teacherId           String? // untuk private
   studentId           String? // untuk private
   substituteTeacherId String?
+  lessonId            String?
 
   title           String?
   scheduledAt     DateTime
@@ -327,6 +405,7 @@ model Session {
   teacher    User?       @relation("SessionTeacher", fields: [teacherId], references: [id])
   substitute User?       @relation("SessionSubstitute", fields: [substituteTeacherId], references: [id])
   student    User?       @relation("SessionStudent", fields: [studentId], references: [id])
+  lesson     Lesson?     @relation(fields: [lessonId], references: [id])
 
   attendances        SessionAttendance[]
   grades             SessionGrade[]
@@ -343,6 +422,12 @@ model Session {
   // tidak ikut terkena. Menggantikan @@index([studentId, scheduledAt])
   // karena unique sudah membuat indeksnya sendiri.
   @@unique([studentId, scheduledAt])
+  /// Idempotensi generator untuk REGULER. Unique (studentId, scheduledAt)
+  /// yang sudah ada TIDAK melindungi sesi reguler: di sana studentId NULL,
+  /// dan Postgres menganggap NULL selalu berbeda — justru itu sebabnya privat
+  /// aman. Tanpa baris ini, satu cron yang di-retry menggandakan seluruh
+  /// kalender sebuah kelas tanpa suara.
+  @@unique([classGroupId, scheduledAt])
   @@index([classGroupId, scheduledAt])
   @@index([teacherId, scheduledAt])
   @@index([scheduledAt])
