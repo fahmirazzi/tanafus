@@ -572,7 +572,10 @@ Untuk akun anak, orang tua tertautlah yang mengajukan.
 
 ## 5. Usulan Amandemen Business Rules
 
-Butuh persetujuan owner. `docs/03-business-rules.md` menyatakan aturan di
+**SUDAH DISETUJUI DAN DITERAPKAN 2026-09-05** — kelimanya kini menjadi aturan resmi di
+`docs/03-business-rules.md` (lihat "Riwayat Amandemen" di sana), sebagian dengan
+rumusan yang diperbaiki. Bagian ini disimpan sebagai catatan asal-usulnya.
+Catatan asli: `docs/03-business-rules.md` menyatakan aturan di
 sana adalah keputusan final dan tidak boleh diubah developer tanpa
 persetujuan — maka lima hal berikut diajukan, bukan diasumsikan.
 
