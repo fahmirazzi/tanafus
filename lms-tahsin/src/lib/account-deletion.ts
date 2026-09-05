@@ -80,3 +80,52 @@ export function buildAnonymizedUserData(now: Date): {
     deletedAt: now,
   };
 }
+
+/**
+ * Status permintaan penghapusan.
+ *
+ * `status` di schema adalah kolom String biasa, bukan enum Postgres, jadi
+ * menambah nilai baru TIDAK butuh migrasi. Yang benar-benar baru hanya
+ * `awaiting_admin`: permintaan yang diajukan orang tua atas nama anaknya dan
+ * belum ditinjau admin. Penolakan memakai ulang `blocked` — kolom
+ * blockedBy/blockedReason sudah ada sejak Task 8 dan persis memodelkan itu.
+ *
+ * Cron eksekusi HANYA menyapu `pending`, sehingga permintaan yang masih
+ * menunggu admin tidak mungkin dieksekusi diam-diam.
+ */
+export const DELETION_STATUS = {
+  awaitingAdmin: "awaiting_admin",
+  pending: "pending",
+  cancelled: "cancelled",
+  executed: "executed",
+  blocked: "blocked",
+} as const;
+
+export function isPendingReview(status: string): boolean {
+  return status === DELETION_STATUS.awaitingAdmin;
+}
+
+/**
+ * Pembatalan masih boleh selama akun belum benar-benar dianonimkan — baik
+ * saat menunggu admin maupun saat sudah disetujui tapi masih dalam tenggang.
+ * Setelah `executed` tidak ada jalan kembali: identitasnya sudah lenyap.
+ */
+export function canCancelDeletionRequest(status: string): boolean {
+  return (
+    status === DELETION_STATUS.awaitingAdmin ||
+    status === DELETION_STATUS.pending
+  );
+}
+
+/**
+ * Kelayakan satu permintaan yang mencakup beberapa akun (orang tua + anak).
+ * Satu anggota yang masih punya tanggungan menahan seluruh permintaan —
+ * menghapus sebagian keluarga sambil menyisakan tagihan atas nama yang lain
+ * justru menghasilkan keadaan yang paling sulit ditagih.
+ */
+export function familyEligibility(
+  members: readonly DeletionEligibility[],
+): DeletionEligibility {
+  const blocker = members.find((member) => !member.allowed);
+  return blocker ?? { allowed: true, reason: null };
+}

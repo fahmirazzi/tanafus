@@ -821,9 +821,17 @@ model CronRun {
 model AccountDeletionRequest {
   id            String    @id @default(uuid())
   userId        String
+  /// Siapa yang MENGAJUKAN. null = akun itu sendiri (layanan mandiri).
+  /// Terisi bila orang tua mengajukan atas nama anaknya — jejak itu wajib
+  /// ada untuk permintaan penghapusan data yang bersifat legal (NFR-6).
+  requestedBy   String?
   requestedAt   DateTime  @default(now())
-  executeAfter  DateTime
-  status        String    @default("pending") // pending | cancelled | executed | blocked
+  /// null selama permintaan masih menunggu tinjauan admin: belum ada tanggal
+  /// eksekusi yang bermakna. Diisi saat admin menyetujui, sehingga tenggang
+  /// 7 hari berjalan dari KEPUTUSAN, bukan dari pengajuan. Query cron memakai
+  /// `lte`, dan null tidak pernah cocok dengan itu — aman secara konstruksi.
+  executeAfter  DateTime?
+  status        String    @default("pending") // awaiting_admin | pending | cancelled | executed | blocked
   blockedBy     String?
   blockedReason String?
   executedAt    DateTime?
