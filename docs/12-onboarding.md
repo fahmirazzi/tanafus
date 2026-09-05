@@ -60,6 +60,27 @@ sendiri:
    sudah dipakai proyek ini). Jalankan `prisma migrate deploy` sekali di
    awal.
 
+   **PERINGATAN migrasi B1 (kelas reguler).** Migrasi
+   `20260905133307_kelas_reguler_b1` menambah kolom NOT NULL TANPA
+   default ke `ClassGroup` (`teacherId`, `audience`, `honorPerSession`)
+   dan ke `Enrollment` (`updatedAt` — beda dari `enrolledAt`/`createdAt`
+   di migrasi yang sama, yang keduanya sudah punya
+   `DEFAULT CURRENT_TIMESTAMP` sehingga aman). Di database KOSONG (deploy pertama kali)
+   ini tidak masalah. Tapi kalau tabel `ClassGroup`/`Enrollment` di
+   environment target SUDAH berisi baris (mis. lingkungan yang sempat
+   dipakai sebelum B1 ada, atau staging yang datanya disalin dari
+   produksi lama), `prisma migrate deploy` akan GAGAL di tengah jalan
+   karena Postgres tidak bisa mengisi kolom NOT NULL baru untuk baris
+   yang sudah ada tanpa nilai default. **Wajib dicek sebelum deploy ke
+   environment mana pun**: `SELECT count(*) FROM "ClassGroup"` (dan
+   `"Enrollment"`) di database target. Kalau hasilnya bukan nol, siapkan
+   backfill (isi kolom baru secara manual atau tambahkan default
+   sementara) sebelum menjalankan migrasi ini — jangan coba-coba
+   `migrate deploy` langsung dan berharap "sukses" tanpa memverifikasi
+   isi migrasi (lihat catatan di memori: migrasi bisa "sukses" pada
+   migration.sql yang isinya ternyata kosong/parsial — selalu cek isi
+   file DAN kolom database langsung, bukan cuma exit code).
+
    **Root Directory wajib `lms-tahsin`** (repo ini bukan proyek Next.js
    di root). Setelah import, cek **Settings → Build and Deployment →
    Framework Preset** benar-benar terbaca **Next.js** — beberapa kali

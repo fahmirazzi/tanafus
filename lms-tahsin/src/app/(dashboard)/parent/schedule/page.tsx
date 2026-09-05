@@ -56,19 +56,44 @@ export default async function ParentSchedulePage() {
   const upcomingUntil = new Date(now.getTime() + UPCOMING_DAYS * 86_400_000);
 
   const [sessions, requests] = await Promise.all([
+    // Sesi privat DAN reguler sama-sama harus tampil di sini. Sesi reguler
+    // punya studentId NULL — dicarinya lewat
+    // classGroup.enrollments.some({ studentId }), bukan lewat studentId,
+    // yang justru kosong untuk tipe ini. Inilah jebakan yang sama yang
+    // sempat membuat ekspor data melewatkan sesi reguler di Rilis A.
     prisma.session.findMany({
       where: {
-        type: SessionType.private,
-        studentId: { in: studentIds },
         status: { in: [SessionStatus.scheduled, SessionStatus.in_progress] },
         scheduledAt: { gte: now, lt: upcomingUntil },
+        OR: [
+          { type: SessionType.private, studentId: { in: studentIds } },
+          {
+            type: SessionType.regular,
+            classGroup: {
+              enrollments: {
+                some: { studentId: { in: studentIds }, status: "active" },
+              },
+            },
+          },
+        ],
       },
       select: {
         id: true,
+        type: true,
         scheduledAt: true,
         durationMinutes: true,
         student: { select: { fullName: true } },
         teacher: { select: { fullName: true } },
+        classGroup: {
+          select: {
+            name: true,
+            enrollments: {
+              where: { studentId: { in: studentIds }, status: "active" },
+              select: { student: { select: { fullName: true } } },
+              take: 1,
+            },
+          },
+        },
         rescheduleRequests: {
           where: { status: SimpleApprovalStatus.pending },
           select: { id: true },
@@ -123,29 +148,45 @@ export default async function ParentSchedulePage() {
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {sessions.map((session) => (
-                <li
-                  key={session.id}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-plum-800">
-                      {session.student?.fullName ?? "Murid"} ·{" "}
-                      {formatTanggalJamWIB(session.scheduledAt)}
-                    </p>
-                    <p className="text-xs text-plum-500">
-                      {session.durationMinutes} menit bersama{" "}
-                      {session.teacher?.fullName ?? "guru"}
-                    </p>
-                  </div>
-                  <RescheduleButton
-                    sessionId={session.id}
-                    studentName={session.student?.fullName ?? "Murid"}
-                    defaultDate={zonedDateKey(session.scheduledAt)}
-                    hasOpenRequest={session.rescheduleRequests.length > 0}
-                  />
-                </li>
-              ))}
+              {sessions.map((session) => {
+                // Reguler: nama murid datang dari enrolment aktif kelasnya
+                // (studentId sesi ini sendiri NULL), bukan dari session.student.
+                const studentName =
+                  session.student?.fullName ??
+                  session.classGroup?.enrollments[0]?.student.fullName ??
+                  "Murid";
+                const isRegular = session.type === SessionType.regular;
+
+                return (
+                  <li
+                    key={session.id}
+                    className="flex flex-wrap items-center justify-between gap-3 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-plum-800">
+                        {studentName} · {formatTanggalJamWIB(session.scheduledAt)}
+                        {isRegular && session.classGroup ? (
+                          <span className="ml-2 text-xs font-normal text-plum-500">
+                            Kelas {session.classGroup.name}
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="text-xs text-plum-500">
+                        {session.durationMinutes} menit bersama{" "}
+                        {session.teacher?.fullName ?? "guru"}
+                      </p>
+                    </div>
+                    {isRegular ? null : (
+                      <RescheduleButton
+                        sessionId={session.id}
+                        studentName={studentName}
+                        defaultDate={zonedDateKey(session.scheduledAt)}
+                        hasOpenRequest={session.rescheduleRequests.length > 0}
+                      />
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

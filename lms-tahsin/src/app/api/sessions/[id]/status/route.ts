@@ -86,7 +86,9 @@ export async function POST(
         scheduledAt: true,
         durationMinutes: true,
         student: { select: { fullName: true, billingPreference: true } },
-        classGroup: { select: { name: true, honorPerSession: true } },
+        classGroup: {
+          select: { name: true, honorPerSession: true, courseId: true },
+        },
       },
     });
     if (!session) return apiError("Sesi tidak ditemukan", 404);
@@ -109,8 +111,29 @@ export async function POST(
       if (!parsed.success) {
         return apiError("Data tidak valid", 422, zodFieldErrors(parsed.error));
       }
-      const { action, notes, makeupAt } = parsed.data;
+      const { action, notes, makeupAt, lessonId } = parsed.data;
       const regularAction = action as RegularAction;
+
+      // Task 10: pemilih lesson dikirim bersama aksi apa pun. "" berarti
+      // guru sengaja mengosongkan pilihan; lesson harus benar-benar milik
+      // silabus course kelas ini, bukan sekadar uuid yang valid.
+      let lessonUpdate: string | null | undefined;
+      if (lessonId !== undefined) {
+        if (lessonId === "") {
+          lessonUpdate = null;
+        } else {
+          const lesson = await prisma.lesson.findFirst({
+            where: { id: lessonId, module: { courseId: session.classGroup.courseId } },
+            select: { id: true },
+          });
+          if (!lesson) {
+            return apiError("Data tidak valid", 422, {
+              lessonId: "Lesson tidak ditemukan di silabus course ini",
+            });
+          }
+          lessonUpdate = lesson.id;
+        }
+      }
 
       // 1. Aksi yang sah untuk reguler berbeda (BR-02.4a: tidak ada cancel_teacher)
       if (!canApplyRegularAction(session.status, regularAction)) {
@@ -191,6 +214,7 @@ export async function POST(
             ...(notes !== undefined
               ? { notes: notes.trim() ? notes.trim() : null }
               : {}),
+            ...(lessonUpdate !== undefined ? { lessonId: lessonUpdate } : {}),
           },
         });
 

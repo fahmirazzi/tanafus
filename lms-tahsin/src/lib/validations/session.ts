@@ -136,6 +136,9 @@ export const regularSessionActionSchema = z.object({
     ])
     .optional(),
   makeupAt: makeupSlotSchema.optional(),
+  // Task 10: pemilih lesson di layar guru. Dikirim bersama aksi supaya tidak
+  // perlu endpoint terpisah — "" berarti kosongkan pilihan lesson.
+  lessonId: z.union([z.uuid("Lesson tidak valid"), z.literal("")]).optional(),
 });
 
 export type RegularSessionActionInput = z.infer<
