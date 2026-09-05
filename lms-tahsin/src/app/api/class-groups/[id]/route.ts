@@ -9,6 +9,7 @@ import {
   requireRole,
 } from "@/lib/auth-guard";
 import { activeRoster } from "@/lib/class-groups";
+import { findTeacherSlotConflict } from "@/lib/sessions";
 import { classGroupSchema } from "@/lib/validations/class";
 import { RoleName } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
@@ -125,6 +126,32 @@ export async function PATCH(
         return apiError("Data tidak valid", 422, {
           teacherId: "Guru tidak ditemukan",
         });
+      }
+
+      // Ganti guru bisa memindahkan class group ini ke jam yang sudah
+      // dipakai guru baru di tempat lain (jadwal privat atau kelas lain).
+      // Slot jadwal aktif milik class group ini TIDAK ikut berubah saat
+      // guru diganti, jadi bentroknya harus dicek di sini juga — bukan cuma
+      // di route jadwal (POST/PATCH schedules) — supaya session-generator
+      // tidak diam-diam membuat sesi ganda untuk guru yang baru ditugaskan.
+      const activeSchedules = await prisma.classGroupSchedule.findMany({
+        where: { classGroupId: id, isActive: true },
+        select: { dayOfWeek: true, startTime: true, durationMinutes: true },
+      });
+      for (const slot of activeSchedules) {
+        const conflict = await findTeacherSlotConflict({
+          teacherId,
+          dayOfWeek: slot.dayOfWeek,
+          startTime: slot.startTime,
+          durationMinutes: slot.durationMinutes,
+          ignoreClassGroupId: id,
+        });
+        if (conflict) {
+          return apiError(
+            `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
+            422,
+          );
+        }
       }
     }
 
