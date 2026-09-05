@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SessionStatus } from "@/generated/prisma/enums";
 import { SESSION_ACTIONS, type SessionAction } from "@/lib/session-actions";
+import { REGULAR_ACTIONS, type RegularAction } from "@/lib/regular-sessions";
 
 /**
  * Status yang masih "menduduki" slot waktu. Sesi yang dibatalkan atau
@@ -100,3 +101,43 @@ export const sessionActionSchema = z.object({
 });
 
 export type SessionActionInput = z.infer<typeof sessionActionSchema>;
+
+/**
+ * Jadwal sesi pengganti yang diusulkan bersamaan dengan pembatalan kelas
+ * reguler (BR-02.4). Bentuknya sengaja sama dengan classScheduleSchema
+ * (tanggal + jam, bukan instan penuh) supaya konsisten dengan cara jadwal
+ * mingguan lain dimasukkan di aplikasi ini.
+ */
+export const makeupSlotSchema = z.object({
+  date: z.iso.date("Format tanggal tidak valid"),
+  startTime: z
+    .string()
+    .trim()
+    .regex(TIME_OF_DAY, "Jam mulai harus format 16:00"),
+});
+
+export type MakeupSlotInput = z.infer<typeof makeupSlotSchema>;
+
+/**
+ * Aksi status sesi KELAS REGULER (Task 8, spec B1 §5.3).
+ *
+ * Himpunan aksinya diambil dari regular-sessions.ts, bukan dari
+ * session-actions.ts: reguler tidak punya complete_absent maupun
+ * cancel_teacher (BR-02.4a). `makeupAt` hanya wajib diisi saat
+ * action === "cancel_institution", tapi validasinya sendiri (wajib/tidak)
+ * dilakukan di route karena bergantung pada nilai field lain.
+ */
+export const regularSessionActionSchema = z.object({
+  action: z.enum(REGULAR_ACTIONS as [RegularAction, ...RegularAction[]]),
+  notes: z
+    .union([
+      z.string().trim().max(1000, "Catatan maksimal 1000 karakter"),
+      z.literal(""),
+    ])
+    .optional(),
+  makeupAt: makeupSlotSchema.optional(),
+});
+
+export type RegularSessionActionInput = z.infer<
+  typeof regularSessionActionSchema
+>;

@@ -69,6 +69,29 @@ export async function getStudentAudienceIds(
   return [studentId, ...links.map((l) => l.parentId)];
 }
 
+/**
+ * BR-09.2: satu peristiwa sesi reguler menyebar ke SELURUH murid yang aktif
+ * terdaftar beserta wali mereka, bukan ke satu keluarga seperti privat.
+ */
+export async function getClassAudienceIds(
+  classGroupId: string,
+  client: Client = prisma,
+): Promise<string[]> {
+  const enrollments = await client.enrollment.findMany({
+    where: { classGroupId, status: "active" },
+    select: { studentId: true },
+  });
+  const studentIds = enrollments.map((e) => e.studentId);
+  if (studentIds.length === 0) return [];
+
+  const links = await client.parentStudent.findMany({
+    where: { studentId: { in: studentIds } },
+    select: { parentId: true },
+  });
+
+  return [...new Set([...studentIds, ...links.map((l) => l.parentId)])];
+}
+
 /** Alamat email pengguna aktif dari sekumpulan id, untuk event BR-09 yang
  * wajib lewat email selain in-app. Pengguna tanpa email atau nonaktif
  * dilewati diam-diam — bukan kegagalan, hanya tidak ada tujuan kirim. */
