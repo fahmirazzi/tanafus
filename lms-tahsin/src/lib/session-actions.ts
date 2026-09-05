@@ -54,7 +54,11 @@ export function canApplyAction(
   return ALLOWED_FROM[action].includes(current);
 }
 
-/** BR-04.1: hanya dua status ini yang melahirkan charge dan upah. */
+/**
+ * BR-04.1: hanya dua status ini yang melahirkan charge dan upah — UNTUK SESI
+ * PRIVAT. Untuk reguler pakai `createsCharge` / `createsEarning` di
+ * `@/lib/regular-sessions`, karena reguler membayar guru tanpa menagih murid.
+ */
 export function isBillableStatus(status: SessionStatus): boolean {
   return (
     status === SessionStatus.completed ||
