@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DELETION_GRACE_DAYS,
+  buildAnonymizedUserData,
   checkDeletionEligibility,
   deletionExecuteAfter,
   isDeletionDue,
@@ -74,5 +75,51 @@ describe("isDeletionDue", () => {
     expect(isDeletionDue(executeAfter, new Date("2026-09-12T10:00:00.000Z"))).toBe(
       true,
     );
+  });
+});
+
+describe("buildAnonymizedUserData", () => {
+  const now = new Date("2026-09-11T10:00:00.000Z");
+
+  it("mengosongkan seluruh kolom identitas", () => {
+    const data = buildAnonymizedUserData(now);
+
+    expect(data.fullName).toBe("Pengguna dihapus");
+    expect(data.photoUrl).toBeNull();
+    expect(data.address).toBeNull();
+    expect(data.birthDate).toBeNull();
+    expect(data.gender).toBeNull();
+    expect(data.suspensionReason).toBeNull();
+  });
+
+  it("mengosongkan email dan telepon menjadi NULL, BUKAN string placeholder", () => {
+    const data = buildAnonymizedUserData(now);
+
+    // email dan phone bertanda @unique di schema.prisma -- string
+    // placeholder (mis. "deleted@..." atau "") akan bentrok begitu ada
+    // permintaan penghapusan KEDUA yang dieksekusi.
+    expect(data.email).toBeNull();
+    expect(data.phone).toBeNull();
+  });
+
+  it("mengacak passwordHash menjadi sesuatu yang tidak pernah cocok dengan hash bcrypt asli", () => {
+    const data = buildAnonymizedUserData(now);
+
+    expect(data.passwordHash).toMatch(/^deleted:/);
+    expect(data.passwordHash).not.toMatch(/^\$2[aby]\$/); // bukan hash bcrypt
+  });
+
+  it("menghasilkan passwordHash berbeda pada setiap pemanggilan", () => {
+    const first = buildAnonymizedUserData(now);
+    const second = buildAnonymizedUserData(now);
+
+    expect(first.passwordHash).not.toBe(second.passwordHash);
+  });
+
+  it("menonaktifkan akun dan mencatat waktu penghapusan", () => {
+    const data = buildAnonymizedUserData(now);
+
+    expect(data.isActive).toBe(false);
+    expect(data.deletedAt).toBe(now);
   });
 });

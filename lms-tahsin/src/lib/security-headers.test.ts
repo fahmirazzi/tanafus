@@ -54,4 +54,20 @@ describe("buildSecurityHeaders", () => {
 
     expect(csp).toContain("frame-ancestors 'none'");
   });
+
+  it("mengizinkan host ingest Sentry lama maupun yang region-scoped", () => {
+    const headers = buildSecurityHeaders({ reportOnly: true });
+    const csp = headerValue(headers, "Content-Security-Policy-Report-Only") ?? "";
+
+    expect(csp).toMatch(/connect-src[^;]*\*\.ingest\.sentry\.io/);
+    expect(csp).toMatch(/connect-src[^;]*\*\.ingest\.us\.sentry\.io/);
+    expect(csp).toMatch(/connect-src[^;]*\*\.ingest\.de\.sentry\.io/);
+  });
+
+  it("mendaftarkan report-uri supaya pelanggaran CSP bisa dibaca", () => {
+    const headers = buildSecurityHeaders({ reportOnly: true });
+    const csp = headerValue(headers, "Content-Security-Policy-Report-Only") ?? "";
+
+    expect(csp).toContain("report-uri /api/csp-report");
+  });
 });

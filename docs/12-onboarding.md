@@ -106,12 +106,15 @@ sendiri:
    - `SECURITY_CSP_ENFORCE` (opsional) — set `true` untuk mengubah
      Content-Security-Policy dari mode report-only menjadi mode blokir
      sungguhan. Tanpa ini (default), CSP hanya melaporkan pelanggaran
-     tanpa memblokirnya — pantau laporannya dulu satu rilis penuh sebelum
-     menyalakan mode blokir (lihat Verifikasi Akhir Rilis A).
+     tanpa memblokirnya — pantau laporannya dulu satu rilis penuh (lewat
+     `POST /api/csp-report`) sebelum menyalakan mode blokir.
    - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (opsional) —
-     backend rate limiting terdistribusi lewat Upstash Redis. Tanpa
-     keduanya, rate limiting tetap aktif tapi jatuh ke penyimpanan
-     in-memory per instance (tidak konsisten lintas instance serverless).
+     backend rate limiting lewat Upstash Redis. **Tanpa keduanya TIDAK ADA
+     rate limiting sama sekali** — `checkRateLimit` sengaja fail-open
+     (lihat `src/lib/rate-limit-client.ts`) supaya akun Upstash yang
+     hilang tidak bisa menjatuhkan login. Ini bukan fallback in-memory;
+     mengonfigurasi Upstash WAJIB dilakukan untuk benar-benar memenuhi
+     NFR-2 di produksi.
 4. **Cron jobs.** `vercel.json` mendaftarkan empat yang harian/bulanan
    (generator sesi, overdue harian, bundel bulanan, eksekusi penghapusan
    akun) — semuanya jalan di paket Vercel Hobby. **Pengingat H-1 jam/H-5

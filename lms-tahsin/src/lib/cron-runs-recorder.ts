@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { getAdminUserIds } from "@/lib/notifications";
-import { redactError, type CronJobName } from "@/lib/cron-runs";
+import { redactError } from "@/lib/redact";
+import type { CronJobName } from "@/lib/cron-runs";
 
 /** Kirim email kegagalan ke semua admin/super admin aktif yang punya email. */
 async function alertAdmins(job: CronJobName, error: unknown): Promise<void> {
@@ -41,42 +42,68 @@ async function alertAdmins(job: CronJobName, error: unknown): Promise<void> {
  * diagnosis yang NFR-3 ingin dijaga. Dengan membungkus bookkeeping secara
  * terpisah, kegagalan di salah satunya hanya dicatat lewat console.error
  * terstruktur dan TIDAK PERNAH menggantikan atau menelan error asli.
+ *
+ * Baris CronRun sendiri juga dibuat di dalam try/catch (sama seperti
+ * /api/health menangani ini): pada jendela antara deploy dan `prisma
+ * migrate deploy`, tabel CronRun belum ada sama sekali, dan
+ * `prisma.cronRun.create` gagal. Pencatatan hanyalah observability --
+ * TIDAK BOLEH menjadi alasan pekerjaan cron yang sesungguhnya tidak
+ * dijalankan. Kalau baris gagal dibuat, `fn()` tetap dipanggil dan
+ * error asli fn() tetap dilempar seperti biasa; yang hilang hanya jejak
+ * di tabel CronRun untuk eksekusi itu.
  */
 export async function recordCronRun<T>(
   job: CronJobName,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const run = await prisma.cronRun.create({
-    data: { job },
-    select: { id: true },
-  });
+  let runId: string | null = null;
+  try {
+    const run = await prisma.cronRun.create({
+      data: { job },
+      select: { id: true },
+    });
+    runId = run.id;
+  } catch (createError) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        msg: "cron_run_create_failed",
+        job,
+        error: redactError(createError),
+      }),
+    );
+  }
 
   try {
     const result = await fn();
-    await prisma.cronRun.update({
-      where: { id: run.id },
-      data: {
-        finishedAt: new Date(),
-        ok: true,
-        summary: result as never,
-      },
-    });
+    if (runId) {
+      await prisma.cronRun.update({
+        where: { id: runId },
+        data: {
+          finishedAt: new Date(),
+          ok: true,
+          summary: result as never,
+        },
+      });
+    }
     return result;
   } catch (error) {
-    try {
-      await prisma.cronRun.update({
-        where: { id: run.id },
-        data: { finishedAt: new Date(), ok: false, error: redactError(error) },
-      });
-    } catch (updateError) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          msg: "cron_run_update_failed",
-          job,
-          error: redactError(updateError),
-        }),
-      );
+    if (runId) {
+      try {
+        await prisma.cronRun.update({
+          where: { id: runId },
+          data: { finishedAt: new Date(), ok: false, error: redactError(error) },
+        });
+      } catch (updateError) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            msg: "cron_run_update_failed",
+            job,
+            error: redactError(updateError),
+          }),
+        );
+      }
     }
 
     try {

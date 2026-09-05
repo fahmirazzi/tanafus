@@ -58,6 +58,7 @@ export function buildAnonymizedUserData(now: Date): {
   address: null;
   birthDate: null;
   gender: null;
+  suspensionReason: null;
   passwordHash: string;
   isActive: false;
   deletedAt: Date;
@@ -70,6 +71,9 @@ export function buildAnonymizedUserData(now: Date): {
     address: null,
     birthDate: null,
     gender: null,
+    // Teks bebas tentang orang ini, ditulis admin saat menyuspend akunnya —
+    // ikut jadi data pribadi yang harus lenyap saat akun dianonimkan.
+    suspensionReason: null,
     // Hash acak yang tidak pernah cocok dengan password mana pun.
     passwordHash: `deleted:${randomUUID()}`,
     isActive: false,

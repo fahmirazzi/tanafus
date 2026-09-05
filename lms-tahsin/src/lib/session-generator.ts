@@ -23,6 +23,7 @@ export type GenerationSummary = {
   skipped: {
     studentBreak: number;
     suspended: number;
+    deletedUser: number;
     alreadyExists: number;
     inThePast: number;
   };
@@ -100,9 +101,24 @@ export async function generateUpcomingSessions(
   ]);
   const suspendedIds = new Set(suspended.map((student) => student.id));
 
+  // NFR-6: akun yang sudah dianonimkan (deletedAt terisi) tidak boleh
+  // dijadwalkan sesi baru sama sekali. Ini lapis pertahanan KEDUA, bukan
+  // satu-satunya: account-deletion-executor.ts sudah menonaktifkan
+  // PrivateRecurringSchedule milik akun yang dihapus, tapi kalau jaminan itu
+  // pernah bolong (bug, race, baris lama sebelum fitur ini ada), generator
+  // ini tetap harus berhenti sebelum menagih tagihan ke orang yang sudah
+  // tidak bisa login untuk membayarnya. Dicek untuk guru MAUPUN murid,
+  // karena keduanya bisa jadi pihak yang dihapus.
+  const deleted = await prisma.user.findMany({
+    where: { NOT: { deletedAt: null } },
+    select: { id: true },
+  });
+  const deletedIds = new Set(deleted.map((user) => user.id));
+
   const skipped = {
     studentBreak: 0,
     suspended: 0,
+    deletedUser: 0,
     alreadyExists: 0,
     inThePast: 0,
   };
@@ -120,6 +136,10 @@ export async function generateUpcomingSessions(
   for (const schedule of schedules) {
     if (suspendedIds.has(schedule.studentId)) {
       skipped.suspended += 1;
+      continue;
+    }
+    if (deletedIds.has(schedule.studentId) || deletedIds.has(schedule.teacherId)) {
+      skipped.deletedUser += 1;
       continue;
     }
 

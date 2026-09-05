@@ -60,4 +60,43 @@ describe("scrubSentryEvent", () => {
 
     expect(event.request?.data).toBeUndefined();
   });
+
+  it("meredaksi password connection string pada exception value (NFR-4)", () => {
+    const event = scrubSentryEvent({
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value:
+              "connect ECONNREFUSED postgres://user:hunter2@db.internal:5432/lms",
+          },
+        ],
+      },
+    });
+
+    const value = event.exception?.values?.[0] as
+      | { type?: string; value?: string }
+      | undefined;
+    expect(value?.value).not.toContain("hunter2");
+    expect(value?.value).toContain("postgres://***@");
+    // Field lain (mis. type) tidak boleh ikut hilang.
+    expect(value?.type).toBe("Error");
+  });
+
+  it("meredaksi password connection string pada breadcrumb console (NFR-4)", () => {
+    const event = scrubSentryEvent({
+      breadcrumbs: [
+        {
+          category: "console",
+          message: "gagal konek ke redis://default:hunter2@cache.internal:6379",
+        },
+      ],
+    });
+
+    const crumb = event.breadcrumbs?.[0] as
+      | { category?: string; message?: string }
+      | undefined;
+    expect(crumb?.message).not.toContain("hunter2");
+    expect(crumb?.message).toContain("redis://***@");
+  });
 });

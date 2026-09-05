@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
 import { PrivateAssignmentStatus, RoleName } from "@/generated/prisma/enums";
 import { PRIVATE_ASSIGNMENT_LABEL } from "@/lib/labels";
-import { DEFAULT_PAGE_SIZE } from "@/lib/api";
+import { DEFAULT_PAGE_SIZE, paginationSchema, toPrismaPagination } from "@/lib/api";
 import { totalPages as calcTotalPages } from "@/lib/pagination-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,12 +21,6 @@ function one(value: string | string[] | undefined): string | undefined {
   return raw && raw.length > 0 ? raw : undefined;
 }
 
-/** Nilai bukan angka, nol, atau negatif jatuh ke halaman 1. */
-function parsePage(value: string | undefined): number {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
-}
-
 /** Daftar murid privat guru, pintu masuk ke riwayat feedback (PRD F-8). */
 export default async function TeacherStudentsPage({
   searchParams,
@@ -35,7 +29,17 @@ export default async function TeacherStudentsPage({
 }) {
   const teacher = await requireRole(RoleName.teacher);
   const params = await searchParams;
-  const page = parsePage(one(params.page));
+
+  // Query string tidak valid diperlakukan sebagai "halaman 1", bukan error
+  // -- sama seperti admin/users/page.tsx, memakai skema pagination bersama
+  // supaya aturan validasi dan defaultnya tidak dobel-diimplementasikan.
+  const parsedPagination = paginationSchema.safeParse({
+    page: one(params.page),
+    pageSize: one(params.pageSize),
+  });
+  const pagination = parsedPagination.success
+    ? parsedPagination.data
+    : { page: 1, pageSize: DEFAULT_PAGE_SIZE };
 
   const where = {
     teacherId: teacher.id,
@@ -53,13 +57,12 @@ export default async function TeacherStudentsPage({
         },
       },
       orderBy: { student: { fullName: "asc" } },
-      skip: (page - 1) * DEFAULT_PAGE_SIZE,
-      take: DEFAULT_PAGE_SIZE,
+      ...toPrismaPagination(pagination),
     }),
     prisma.privateAssignment.count({ where }),
   ]);
 
-  const pages = calcTotalPages(total, DEFAULT_PAGE_SIZE);
+  const pages = calcTotalPages(total, pagination.pageSize);
 
   return (
     <div className="space-y-6">
@@ -128,7 +131,7 @@ export default async function TeacherStudentsPage({
       <PaginationNav
         pathname="/teacher/students"
         params={{}}
-        page={page}
+        page={pagination.page}
         totalPages={pages}
       />
     </div>

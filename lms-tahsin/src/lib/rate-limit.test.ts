@@ -71,6 +71,10 @@ describe("rateLimitRuleFor", () => {
     expect(rateLimitRuleFor("/api/webhooks/midtrans")).toBeNull();
   });
 
+  it("TIDAK membatasi endpoint laporan pelanggaran CSP — dipicu browser tanpa sesi", () => {
+    expect(rateLimitRuleFor("/api/csp-report")).toBeNull();
+  });
+
   it("TIDAK membatasi halaman non-API", () => {
     expect(rateLimitRuleFor("/parent/billing")).toBeNull();
   });

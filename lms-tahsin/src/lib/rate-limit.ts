@@ -30,7 +30,18 @@ const API_RULE: RateLimitRule = {
   scope: "user",
 };
 
-const UNLIMITED_PREFIXES = ["/api/cron", "/api/webhooks", "/api/health"];
+// /api/csp-report menerima POST tanpa sesi dari BROWSER PENGGUNA (bukan
+// server tepercaya seperti cron/webhook) -- tapi membatasi lajunya lewat
+// Upstash sama saja menuntut infrastruktur pembatas laju untuk endpoint
+// yang justru dibuat SUPAYA CSP bisa mulai diberlakukan. Pelindungnya
+// sudah ada di route itu sendiri: body diabaikan di luar beberapa field
+// dan ukurannya dibatasi sebelum masuk log (lihat csp-report/route.ts).
+const UNLIMITED_PREFIXES = [
+  "/api/cron",
+  "/api/webhooks",
+  "/api/health",
+  "/api/csp-report",
+];
 
 /**
  * Hanya jalur yang MENERIMA KREDENSIAL yang masuk AUTH_RULE (5/menit/IP).
