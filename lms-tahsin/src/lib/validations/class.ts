@@ -66,3 +66,19 @@ export const classScheduleSchema = z.object({
 export const enrollmentSchema = z.object({
   studentId: z.string().uuid("Murid tidak valid"),
 });
+
+export const attendanceSchema = z.object({
+  marks: z
+    .array(
+      z.object({
+        studentId: z.string().uuid(),
+        status: z.enum(["present", "late", "absent", "excused"], {
+          error: "Status kehadiran tidak valid",
+        }),
+        excuseReason: z
+          .union([z.string().trim().max(500), z.literal("")])
+          .optional(),
+      }),
+    )
+    .min(1, "Tidak ada kehadiran yang dikirim"),
+});
