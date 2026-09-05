@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   createNotifications,
+  getClassAudienceIds,
   getStudentAudienceIds,
 } from "@/lib/notifications";
 import { formatJamWIB } from "@/lib/datetime";
@@ -40,24 +41,32 @@ export async function sendDueReminders(
 
     const sessions = await prisma.session.findMany({
       where: {
-        type: SessionType.private,
         status: SessionStatus.scheduled,
         // Sesi yang sudah lewat tidak perlu diingatkan lagi.
         scheduledAt: { gte: now, lte: until },
         // Filter awal; unique constraint tetap jadi penjaga terakhir.
         reminders: { none: { kind: window.kind } },
-        studentId: { not: null },
         teacherId: { not: null },
+        // Privat butuh studentId; reguler butuh classGroupId. Keduanya NULL
+        // di baris yang lain, jadi tidak cukup satu syarat studentId saja
+        // seperti sebelumnya — itu akan membuang seluruh sesi reguler.
+        OR: [
+          { type: SessionType.private, studentId: { not: null } },
+          { type: SessionType.regular, classGroupId: { not: null } },
+        ],
       },
       select: {
         id: true,
+        type: true,
         scheduledAt: true,
         studentId: true,
+        classGroupId: true,
         teacherId: true,
         substituteTeacherId: true,
         teacher: { select: { fullName: true } },
         substitute: { select: { fullName: true } },
         student: { select: { fullName: true } },
+        classGroup: { select: { name: true } },
       },
       orderBy: { scheduledAt: "asc" },
       take: 200,
@@ -65,11 +74,21 @@ export async function sendDueReminders(
 
     let sent = 0;
     for (const session of sessions) {
-      if (!session.studentId) continue;
+      if (session.type === SessionType.private && !session.studentId) continue;
+      if (session.type === SessionType.regular && !session.classGroupId) continue;
+
+      // BR-09.2: sesi reguler menyebar ke seluruh murid terdaftar beserta wali
+      // mereka. Ini pertama kalinya SATU sesi menghasilkan puluhan notifikasi,
+      // bukan tiga — insertnya dibatch (lihat createNotifications), dan target
+      // NFR-1 "cron < 1 menit" perlu diukur ulang dengan satu kelas nyata terisi.
+      const audienceIds =
+        session.type === SessionType.regular && session.classGroupId
+          ? await getClassAudienceIds(session.classGroupId)
+          : await getStudentAudienceIds(session.studentId!);
 
       // BR-09: pengingat ditujukan ke murid + orang tua, dan guru ikut tahu.
       const audience = [
-        ...(await getStudentAudienceIds(session.studentId)),
+        ...audienceIds,
         ...(session.teacherId ? [session.teacherId] : []),
         ...(session.substituteTeacherId ? [session.substituteTeacherId] : []),
       ];
@@ -77,6 +96,10 @@ export async function sendDueReminders(
       const pengajar =
         session.substitute?.fullName ?? session.teacher?.fullName ?? "guru";
       const jam = formatJamWIB(session.scheduledAt);
+      const subjek =
+        session.type === SessionType.regular
+          ? `kelas ${session.classGroup?.name ?? ""}`.trim()
+          : session.student?.fullName ?? "murid";
 
       // Klaim dan kirim dalam satu transaksi: kalau notifikasi gagal,
       // klaimnya ikut batal sehingga pengingat masih bisa menyusul.
@@ -95,8 +118,11 @@ export async function sendDueReminders(
         await createNotifications(tx, {
           userIds: audience,
           type: `session_reminder_${window.kind}`,
-          title: "Pengingat sesi privat",
-          body: `Sesi ${session.student?.fullName ?? "murid"} bersama ${pengajar} mulai pukul ${jam} WIB — ${window.label}.`,
+          title:
+            session.type === SessionType.regular
+              ? "Pengingat sesi kelas"
+              : "Pengingat sesi privat",
+          body: `Sesi ${subjek} bersama ${pengajar} mulai pukul ${jam} WIB — ${window.label}.`,
           data: { sessionId: session.id, kind: window.kind },
         });
         return true;
