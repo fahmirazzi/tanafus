@@ -84,6 +84,58 @@ export async function findSessionConflict(params: {
   };
 }
 
+/**
+ * Seorang guru tidak boleh terjadwal ganda LINTAS tipe. Pengecekan yang ada
+ * hanya melihat jadwal privat; kelas reguler menambah sumber bentrok kedua.
+ *
+ * Keterbatasan yang disadari (sama seperti pengecekan privat): pembandingnya
+ * adalah sesi yang sudah tergenerate plus template jadwal aktif, bukan simulasi
+ * penuh setiap kemunculan sampai akhir periode.
+ */
+export async function findTeacherSlotConflict(input: {
+  teacherId: string;
+  dayOfWeek: number;
+  startTime: string;
+  durationMinutes: number;
+  ignoreClassGroupId?: string;
+}): Promise<{ kind: "private" | "regular"; label: string } | null> {
+  const privateHit = await prisma.privateRecurringSchedule.findFirst({
+    where: {
+      teacherId: input.teacherId,
+      dayOfWeek: input.dayOfWeek,
+      startTime: input.startTime,
+      isActive: true,
+    },
+    select: { student: { select: { fullName: true } } },
+  });
+  if (privateHit) {
+    return {
+      kind: "private",
+      label: `jadwal privat dengan ${privateHit.student.fullName}`,
+    };
+  }
+
+  const regularHit = await prisma.classGroupSchedule.findFirst({
+    where: {
+      dayOfWeek: input.dayOfWeek,
+      startTime: input.startTime,
+      isActive: true,
+      classGroup: {
+        teacherId: input.teacherId,
+        ...(input.ignoreClassGroupId
+          ? { id: { not: input.ignoreClassGroupId } }
+          : {}),
+      },
+    },
+    select: { classGroup: { select: { name: true } } },
+  });
+  if (regularHit) {
+    return { kind: "regular", label: `kelas ${regularHit.classGroup.name}` };
+  }
+
+  return null;
+}
+
 // --- navigasi mingguan ---
 
 /** Geser sebuah kunci tanggal "YYYY-MM-DD" sekian hari. */
