@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { ClassAudience } from "@/generated/prisma/enums";
 
+/**
+ * Durasi terpanjang satu sesi kelas reguler.
+ *
+ * Diekspor karena pencarian bentrok harus melebarkan jendela query-nya
+ * sejauh ini — kalau angkanya menyimpang dari validator, sesi terpanjang
+ * berhenti terlihat oleh pencarian itu dan tumpang tindihnya lolos diam-diam.
+ */
+export const MAX_CLASS_DURATION_MINUTES = 300;
+
 /** Masukan modul kelas reguler B1 (spec B1 §3, §6). */
 
 const name = z.string().trim().min(2, "Nama minimal 2 karakter").max(120);
@@ -62,7 +71,11 @@ export const classScheduleSchema = z.object({
   startTime: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Jam harus format HH:MM"),
-  durationMinutes: z.coerce.number().int().min(15).max(300),
+  durationMinutes: z.coerce
+    .number()
+    .int()
+    .min(15)
+    .max(MAX_CLASS_DURATION_MINUTES),
   meetingUrl: z.union([z.string().trim().url("URL tidak valid"), z.literal("")]).optional(),
 });
 

@@ -75,6 +75,21 @@ export function zonedDayOfWeek(dateISO: string): number {
   return new Date(`${dateISO}T12:00:00.000Z`).getUTCDay();
 }
 
+/**
+ * Instan awal hari (00:00) zona lembaga untuk hari tempat `instant` berada.
+ *
+ * Ada sebagai fungsi tersendiri karena bentuk yang tampak setara,
+ * `new Date(` + `${zonedDateKey(x)}T00:00:00.000Z` + `)`, MENEMPELKAN Z pada
+ * tanggal lokal dan karena itu menghasilkan pukul 07:00 WIB — bukan awal hari.
+ * Bentuk itu benar untuk kolom @db.Date (yang memang disimpan di tengah malam
+ * UTC), dan SALAH untuk membandingkan instan nyata seperti Session.scheduledAt.
+ * Kesalahan itu sudah pernah terjadi sekali; uji di zoned-date.test.ts
+ * mengunci perbedaannya.
+ */
+export function startOfLocalDay(instant: Date): Date {
+  return zonedDateTimeToUtc(zonedDateKey(instant), "00:00");
+}
+
 /** Daftar tanggal lokal berurutan mulai hari ini, sepanjang `days` hari. */
 export function upcomingDateKeys(from: Date, days: number): string[] {
   const keys: string[] = [];

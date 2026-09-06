@@ -12,7 +12,11 @@ import { activeRoster } from "@/lib/class-groups";
 import { toTimeInputWIB } from "@/lib/datetime";
 import { findTeacherSlotConflict } from "@/lib/sessions";
 import { TX_OPTIONS } from "@/lib/users";
-import { zonedDateKey, zonedDayOfWeek } from "@/lib/zoned-date";
+import {
+  startOfLocalDay,
+  zonedDateKey,
+  zonedDayOfWeek,
+} from "@/lib/zoned-date";
 import { classGroupSchema } from "@/lib/validations/class";
 import { RoleName, SessionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
@@ -35,9 +39,11 @@ type RouteContext = { params: Promise<{ id: string }> };
  * karena justru itulah kasus yang membuat sesi tidak bisa ditutup siapa pun.
  */
 function movableSessionsWhere(classGroupId: string): Prisma.SessionWhereInput {
-  const startOfTodayWIB = new Date(
-    `${zonedDateKey(new Date())}T00:00:00.000Z`,
-  );
+  // startOfLocalDay, bukan `${tanggal}T00:00:00Z`: yang kedua menghasilkan
+  // pukul 07:00 WIB dan menyaring keluar sesi subuh hari ini — persis kasus
+  // yang penyaring ini ada untuk menangkapnya. Session.scheduledAt adalah
+  // instan nyata, bukan kolom @db.Date.
+  const startOfTodayWIB = startOfLocalDay(new Date());
   return {
     classGroupId,
     OR: [

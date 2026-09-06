@@ -40,6 +40,7 @@ import {
 } from "@/lib/sessions";
 import { timeOverlaps } from "@/lib/time-window";
 import { TX_OPTIONS } from "@/lib/users";
+import { MAX_CLASS_DURATION_MINUTES } from "@/lib/validations/class";
 import {
   OCCUPYING_STATUSES,
   SESSION_STATUS_LABEL,
@@ -210,8 +211,14 @@ export async function POST(
         const makeupStartMs = makeupScheduledAt.getTime();
         const makeupEndMs = makeupStartMs + session.durationMinutes * 60_000;
 
-        // Jendela ±4 jam menutup durasi sesi terpanjang yang masuk akal,
-        // pola yang sama dipakai findSessionConflict.
+        // Jendela pencarian harus selebar sesi TERPANJANG yang mungkin, kalau
+        // tidak sesi panjang yang mulai jauh sebelum make-up tidak terambil dan
+        // tumpang tindihnya lolos. Sisi privat memakai 240 karena validatornya
+        // memang membatasi segitu; kelas reguler boleh sampai
+        // MAX_CLASS_DURATION_MINUTES, jadi angkanya diambil dari validator itu
+        // sendiri supaya tidak bisa menyimpang.
+        const searchSpanMs = MAX_CLASS_DURATION_MINUTES * 60_000;
+
         // Sesi yang sedang dibatalkan IKUT diambil, tidak dikecualikan:
         // barisnya masih ada di tabel, jadi menaruh make-up tepat di jamnya
         // sendiri tetap menabrak unique. Yang dikecualikan hanyalah
@@ -221,8 +228,8 @@ export async function POST(
           where: {
             classGroupId: session.classGroupId,
             scheduledAt: {
-              gte: new Date(makeupStartMs - 240 * 60_000),
-              lte: new Date(makeupEndMs + 240 * 60_000),
+              gte: new Date(makeupStartMs - searchSpanMs),
+              lte: new Date(makeupEndMs + searchSpanMs),
             },
           },
           select: {
@@ -270,9 +277,23 @@ export async function POST(
           makeupAt.date >= periodStartKey && makeupAt.date <= periodEndKey;
 
         if (withinPeriod) {
+          // Slot yang kemunculannya pada TANGGAL ini sudah berwujud baris
+          // konkret harus dilewati: lapis sesi-konkret di atas sudah memberi
+          // putusan atasnya, dan putusannya bisa BERLAWANAN — sesi yang baru
+          // saja dibatalkan (termasuk sesi yang sedang dibatalkan sekarang)
+          // sengaja dibebaskan di sana. Tanpa pengecualian ini, memindahkan
+          // kelas hari ini dari 16:00 ke 16:30 akan ditolak oleh jadwal rutin
+          // yang baru saja dikosongkan sendiri.
+          const materialised = new Set(
+            nearby.map((s) => s.scheduledAt.getTime()),
+          );
+
           const slotClash = session.classGroup.schedules.find(
             (slot) =>
               slot.dayOfWeek === makeupDayOfWeek &&
+              !materialised.has(
+                zonedDateTimeToUtc(makeupAt.date, slot.startTime).getTime(),
+              ) &&
               timeOverlaps(
                 { startTime: makeupAt.startTime, durationMinutes: session.durationMinutes },
                 slot,
