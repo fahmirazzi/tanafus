@@ -157,11 +157,25 @@ export async function findTeacherRegularSlotConflict(
 export async function findTeacherPrivateSlotConflict(
   input: TeacherSlotQuery,
 ): Promise<TeacherSlotConflict | null> {
+  const todayLocal = new Date(`${zonedDateKey(new Date())}T00:00:00.000Z`);
+
   const candidates = await prisma.privateRecurringSchedule.findMany({
     where: {
       teacherId: input.teacherId,
       dayOfWeek: input.dayOfWeek,
       isActive: true,
+      // Masa berlaku yang sudah habis tidak boleh memblokir apa pun —
+      // penyakit yang sama persis dengan yang disembuhkan di sisi reguler
+      // (periode yang sudah lewat), dan tanpa ini gerbangnya cuma benar di
+      // satu arah. isActive saja tidak cukup: tidak ada proses yang
+      // mematikannya saat effectiveUntil terlewat.
+      //
+      // effectiveFrom SENGAJA tidak disaring: jadwal yang baru mulai bulan
+      // depan tetap komitmen nyata dan memang harus memblokir.
+      OR: [
+        { effectiveUntil: null },
+        { effectiveUntil: { gte: todayLocal } },
+      ],
     },
     select: {
       startTime: true,

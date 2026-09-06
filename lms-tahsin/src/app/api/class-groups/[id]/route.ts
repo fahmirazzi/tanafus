@@ -20,15 +20,35 @@ import type { Prisma } from "@/generated/prisma/client";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * Sesi yang ikut berpindah saat guru class group diganti: yang belum final.
+ * Sesi yang ikut berpindah saat guru class group diganti.
+ *
  * Dipakai DUA kali — sekali untuk mengecek bentrok sebelum memindahkan, dan
- * sekali untuk memindahkannya — dan keduanya wajib memakai daftar yang sama,
- * kalau tidak ada sesi yang pindah tanpa pernah dicek bentrok.
+ * sekali untuk memindahkannya — dan keduanya WAJIB memakai penyaring yang
+ * sama, kalau tidak ada sesi yang pindah tanpa pernah dicek bentrok.
+ *
+ * Batasnya awal hari ini WIB, BUKAN semua sesi yang belum final. Tidak ada
+ * satu pun proses yang menutup sesi `scheduled` yang jamnya sudah lewat,
+ * jadi sesi basi menumpuk selamanya setiap kali guru lupa menekan Selesai —
+ * dan memindahkannya ikut serta akan menerbitkan honornya KELAK atas nama
+ * guru BARU, untuk kelas yang benar-benar diajar guru lama. Sesi hari ini
+ * yang jamnya sudah lewat dan sesi yang sedang berlangsung tetap ikut,
+ * karena justru itulah kasus yang membuat sesi tidak bisa ditutup siapa pun.
  */
-const MOVABLE_STATUSES: SessionStatus[] = [
-  SessionStatus.scheduled,
-  SessionStatus.in_progress,
-];
+function movableSessionsWhere(classGroupId: string): Prisma.SessionWhereInput {
+  const startOfTodayWIB = new Date(
+    `${zonedDateKey(new Date())}T00:00:00.000Z`,
+  );
+  return {
+    classGroupId,
+    OR: [
+      { status: SessionStatus.in_progress },
+      {
+        status: SessionStatus.scheduled,
+        scheduledAt: { gte: startOfTodayWIB },
+      },
+    ],
+  };
+}
 
 const CLASS_GROUP_DETAIL_SELECT = {
   id: true,
@@ -95,7 +115,7 @@ export async function PATCH(
 
     const existing = await prisma.classGroup.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, teacherId: true },
     });
     if (!existing) return apiError("Class group tidak ditemukan", 404);
 
@@ -145,13 +165,22 @@ export async function PATCH(
           teacherId: "Guru tidak ditemukan",
         });
       }
+    }
 
-      // Ganti guru bisa memindahkan class group ini ke jam yang sudah
-      // dipakai guru baru di tempat lain (jadwal privat atau kelas lain).
-      // Slot jadwal aktif milik class group ini TIDAK ikut berubah saat
-      // guru diganti, jadi bentroknya harus dicek di sini juga — bukan cuma
-      // di route jadwal (POST/PATCH schedules) — supaya session-generator
-      // tidak diam-diam membuat sesi ganda untuk guru yang baru ditugaskan.
+    // Bentrok dicek saat GURU berubah maupun saat PERIODE berubah.
+    //
+    // Guru: slot jadwal aktif kelas ini tidak ikut berubah saat gurunya
+    // diganti, jadi bentroknya harus dicek di sini juga — bukan cuma di
+    // route jadwal — supaya generator tidak diam-diam membuat sesi ganda
+    // untuk guru yang baru ditugaskan.
+    //
+    // Periode: sejak sisi reguler berhenti memblokir kelas yang periodenya
+    // sudah lewat, kelas lama bisa DIHIDUPKAN KEMBALI dengan dipindahkan ke
+    // periode baru. Tanpa cek di sini, dua kelas milik guru yang sama bisa
+    // berakhir di jam yang sama — permanen dan senyap, karena generator lalu
+    // membuat sesi rutin dari keduanya.
+    if (teacherId || periodId) {
+      const effectiveTeacherId = teacherId ?? existing.teacherId;
       const activeSchedules = await prisma.classGroupSchedule.findMany({
         where: { classGroupId: id, isActive: true },
         select: { dayOfWeek: true, startTime: true, durationMinutes: true },
@@ -163,7 +192,7 @@ export async function PATCH(
       // peringatan. Jendela yang dicek karena itu gabungan slot aktif DAN jam
       // nyata setiap sesi yang benar-benar akan ikut pindah.
       const movingSessions = await prisma.session.findMany({
-        where: { classGroupId: id, status: { in: MOVABLE_STATUSES } },
+        where: movableSessionsWhere(id),
         select: { scheduledAt: true, durationMinutes: true },
       });
 
@@ -188,7 +217,7 @@ export async function PATCH(
 
       for (const w of windows.values()) {
         const conflict = await findTeacherSlotConflict({
-          teacherId,
+          teacherId: effectiveTeacherId,
           dayOfWeek: w.dayOfWeek,
           startTime: w.startTime,
           durationMinutes: w.durationMinutes,
@@ -218,17 +247,16 @@ export async function PATCH(
         // menulis ulang siapa yang mengajar kelas yang sudah usai akan
         // merusak jejak honor yang terlanjur terbit atas nama guru lama.
         //
-        // Sengaja TIDAK dibatasi `scheduledAt > sekarang`. Pemindahan guru
-        // justru paling sering dipicu saat guru mendadak berhalangan HARI
-        // INI: sesi yang jamnya sudah lewat tapi belum ditutup, dan sesi yang
-        // sudah dimulai, akan tertinggal pada guru lama — guru lama kehilangan
+        // Batas hari-ini-WIB dijelaskan di movableSessionsWhere: cukup lebar
+        // untuk sesi hari ini yang jamnya sudah lewat — kasus yang membuat
+        // sesi tidak bisa ditutup siapa pun, karena guru lama kehilangan
         // akses ke kelasnya (halaman kelas menggerbangi lewat
         // ClassGroup.teacherId) sementara guru baru kena 403 (route sesi
-        // menggerbangi lewat Session.teacherId), sehingga sesi itu tidak bisa
-        // ditutup oleh siapa pun kecuali admin. Honor belum terbit untuk sesi
-        // yang belum selesai, jadi tidak ada jejak yang rusak.
+        // menggerbangi lewat Session.teacherId) — dan cukup sempit untuk
+        // tidak memindahkan honor sesi tahun lalu ke guru yang tidak pernah
+        // mengajarnya.
         await tx.session.updateMany({
-          where: { classGroupId: id, status: { in: MOVABLE_STATUSES } },
+          where: movableSessionsWhere(id),
           data: { teacherId },
         });
       }

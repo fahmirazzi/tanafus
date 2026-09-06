@@ -34,11 +34,14 @@ import { activeRoster } from "@/lib/class-groups";
 import { isRosterComplete } from "@/lib/attendance";
 import {
   findTeacherSlotConflict,
+  zonedDateKey,
   zonedDateTimeToUtc,
   zonedDayOfWeek,
 } from "@/lib/sessions";
+import { timeOverlaps } from "@/lib/time-window";
 import { TX_OPTIONS } from "@/lib/users";
 import {
+  OCCUPYING_STATUSES,
   SESSION_STATUS_LABEL,
   regularSessionActionSchema,
   sessionActionSchema,
@@ -87,7 +90,16 @@ export async function POST(
         durationMinutes: true,
         student: { select: { fullName: true, billingPreference: true } },
         classGroup: {
-          select: { name: true, honorPerSession: true, courseId: true },
+          select: {
+            name: true,
+            honorPerSession: true,
+            courseId: true,
+            period: { select: { startDate: true, endDate: true } },
+            schedules: {
+              where: { isActive: true },
+              select: { dayOfWeek: true, startTime: true, durationMinutes: true },
+            },
+          },
         },
       },
     });
@@ -189,23 +201,89 @@ export async function POST(
 
         makeupScheduledAt = zonedDateTimeToUtc(makeupAt.date, makeupAt.startTime);
 
-        // Kelas sendiri dijaga di tingkat SESI KONKRET — persis apa yang
-        // dilindungi unique (classGroupId, scheduledAt). Ini yang menangkap
-        // sesi rutin yang sudah tergenerate di jam itu maupun make-up lain,
-        // dan menjawabnya dengan pesan yang bisa ditindaklanjuti alih-alih
-        // 500 buram dari kegagalan insert di dalam transaksi.
-        const taken = await prisma.session.findFirst({
+        // Kelas sendiri dijaga di tingkat SESI KONKRET, tapi yang dijaga
+        // adalah TUMPANG TINDIH — bukan cuma jam yang persis sama. Unique
+        // (classGroupId, scheduledAt) hanya menangkap tabrakan eksak; aturan
+        // yang sebenarnya perlu ditegakkan adalah "guru tidak bisa di dua
+        // tempat", dan make-up 16:30 di atas sesi rutin 16:00 melanggarnya
+        // tanpa pernah menyentuh unique itu.
+        const makeupStartMs = makeupScheduledAt.getTime();
+        const makeupEndMs = makeupStartMs + session.durationMinutes * 60_000;
+
+        // Jendela ±4 jam menutup durasi sesi terpanjang yang masuk akal,
+        // pola yang sama dipakai findSessionConflict.
+        // Sesi yang sedang dibatalkan IKUT diambil, tidak dikecualikan:
+        // barisnya masih ada di tabel, jadi menaruh make-up tepat di jamnya
+        // sendiri tetap menabrak unique. Yang dikecualikan hanyalah
+        // perhitungan tumpang tindihnya — setelah dibatalkan ia memang tidak
+        // lagi memakai kalender guru.
+        const nearby = await prisma.session.findMany({
           where: {
             classGroupId: session.classGroupId,
-            scheduledAt: makeupScheduledAt,
+            scheduledAt: {
+              gte: new Date(makeupStartMs - 240 * 60_000),
+              lte: new Date(makeupEndMs + 240 * 60_000),
+            },
           },
-          select: { id: true },
+          select: {
+            id: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+          },
         });
-        if (taken) {
+
+        const clash = nearby.find((other) => {
+          const otherStart = other.scheduledAt.getTime();
+          // Tabrakan EKSAK dijaga tanpa melihat status: unique tidak mengenal
+          // status, jadi sesi yang sudah dibatalkan pun tetap memblokir insert.
+          if (otherStart === makeupStartMs) return true;
+          if (other.id === id) return false;
+          // Tumpang tindih sebagian hanya dihitung untuk sesi yang benar-benar
+          // memakai kalender guru.
+          if (!OCCUPYING_STATUSES.includes(other.status)) return false;
+          return (
+            otherStart < makeupEndMs &&
+            makeupStartMs < otherStart + other.durationMinutes * 60_000
+          );
+        });
+        if (clash) {
           return apiError(
-            "Kelas ini sudah punya sesi pada waktu tersebut. Pilih waktu lain untuk sesi pengganti.",
+            "Kelas ini sudah punya sesi yang bertabrakan dengan waktu tersebut. Pilih waktu lain untuk sesi pengganti.",
             422,
           );
+        }
+
+        // Sesi yang BELUM tergenerate juga harus dihitung: generator hanya
+        // melihat 14 hari ke depan, sedangkan tanggal make-up bebas. Tanpa cek
+        // ini, make-up di luar jendela generator lolos hari ini lalu ditimpa
+        // sesi rutin yang lahir dua pekan kemudian — tumpang tindih yang
+        // muncul sendiri, jauh setelah tombolnya ditekan.
+        //
+        // Sengaja dibatasi TANGGAL make-up itu saja dan hanya di dalam masa
+        // periode, bukan "hari Senin mana pun" seperti versi sebelumnya yang
+        // menolak terlalu banyak.
+        const makeupDayOfWeek = zonedDayOfWeek(makeupAt.date);
+        const periodStartKey = zonedDateKey(session.classGroup.period.startDate);
+        const periodEndKey = zonedDateKey(session.classGroup.period.endDate);
+        const withinPeriod =
+          makeupAt.date >= periodStartKey && makeupAt.date <= periodEndKey;
+
+        if (withinPeriod) {
+          const slotClash = session.classGroup.schedules.find(
+            (slot) =>
+              slot.dayOfWeek === makeupDayOfWeek &&
+              timeOverlaps(
+                { startTime: makeupAt.startTime, durationMinutes: session.durationMinutes },
+                slot,
+              ),
+          );
+          if (slotClash) {
+            return apiError(
+              `Kelas ini punya jadwal rutin ${slotClash.startTime} pada hari itu, dan sesi pengganti akan bertabrakan dengannya. Pilih waktu lain.`,
+              422,
+            );
+          }
         }
       }
 
