@@ -168,29 +168,45 @@ export async function POST(
           );
         }
 
-        // `ignoreClassGroupId` SENGAJA tidak dikirim di sini. Saat membuat
-        // sesi pengganti, kalender kelas ini sendiri justru yang paling perlu
-        // dicek: menaruh make-up di slot mingguan kelasnya sendiri akan
-        // menabrak sesi rutin yang sudah tergenerate di sana, dan unique
-        // (classGroupId, scheduledAt) menolaknya di level database. Membutakan
-        // pengecekan terhadap kelas sendiri hanya menunda kegagalan sampai
-        // insert — di dalam transaksi, sehingga pembatalannya ikut batal.
+        // Kelas ini sendiri dikecualikan dari pengecekan berbasis TEMPLATE:
+        // template hanya tahu hari-dalam-minggu, jadi tanpa pengecualian itu
+        // make-up tertolak di setiap hari Senin mana pun — termasuk pekan yang
+        // sesinya juga dibatalkan, dan pekan setelah periode berakhir, di mana
+        // tidak ada sesi nyata yang bentrok sama sekali.
         const conflict = await findTeacherSlotConflict({
           teacherId: session.teacherId,
           dayOfWeek: zonedDayOfWeek(makeupAt.date),
           startTime: makeupAt.startTime,
           durationMinutes: session.durationMinutes,
+          ignoreClassGroupId: session.classGroupId,
         });
         if (conflict) {
           return apiError(
-            conflict.classGroupId === session.classGroupId
-              ? "Kelas ini sudah punya jadwal rutin pada hari dan jam tersebut. Pilih waktu lain untuk sesi pengganti."
-              : `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
+            `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
             422,
           );
         }
 
         makeupScheduledAt = zonedDateTimeToUtc(makeupAt.date, makeupAt.startTime);
+
+        // Kelas sendiri dijaga di tingkat SESI KONKRET — persis apa yang
+        // dilindungi unique (classGroupId, scheduledAt). Ini yang menangkap
+        // sesi rutin yang sudah tergenerate di jam itu maupun make-up lain,
+        // dan menjawabnya dengan pesan yang bisa ditindaklanjuti alih-alih
+        // 500 buram dari kegagalan insert di dalam transaksi.
+        const taken = await prisma.session.findFirst({
+          where: {
+            classGroupId: session.classGroupId,
+            scheduledAt: makeupScheduledAt,
+          },
+          select: { id: true },
+        });
+        if (taken) {
+          return apiError(
+            "Kelas ini sudah punya sesi pada waktu tersebut. Pilih waktu lain untuk sesi pengganti.",
+            422,
+          );
+        }
       }
 
       const nextStatus = regularNextStatus(regularAction);
@@ -295,13 +311,19 @@ export async function POST(
       try {
         result = await runRegularTransaction();
       } catch (error) {
-        // Pengecekan slot di atas memakai template jadwal mingguan, sedangkan
-        // unique (classGroupId, scheduledAt) menjaga SESI konkret — sesi
-        // pengganti lain, atau sesi yang tanggalnya di luar template. Sisa
-        // celah itu mendarat di sini sebagai P2002. Tanpa cabang ini admin
-        // hanya melihat 500 buram, padahal transaksinya sudah rollback
-        // sehingga sesi aslinya tetap `scheduled` — bukan setengah dibatalkan.
+        // Cek "sesi konkret" di atas menutup kasus normalnya; yang tersisa di
+        // sini adalah LOMBA — dua pembatalan yang menunjuk waktu pengganti
+        // sama dan berjalan bersamaan. Tanpa cabang ini admin hanya melihat
+        // 500 buram, padahal transaksinya sudah rollback sehingga sesi aslinya
+        // tetap `scheduled` — bukan setengah dibatalkan.
+        //
+        // Sengaja dibatasi ke cabang cancel_institution. Hari ini tidak ada
+        // unique lain yang bisa kena di transaksi ini (SessionCharge dan
+        // SessionEarning memakai skipDuplicates; AuditLog dan Notification
+        // tidak punya unique), tapi begitu ada, pesan tentang sesi pengganti
+        // akan menyesatkan pada aksi yang sama sekali tidak membuat make-up.
         if (
+          regularAction === "cancel_institution" &&
           typeof error === "object" &&
           error !== null &&
           (error as { code?: string }).code === "P2002"

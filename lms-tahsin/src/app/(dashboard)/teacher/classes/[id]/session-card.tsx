@@ -122,23 +122,48 @@ export function SessionCard({
   }
 
   /**
-   * SATU request untuk seluruh roster (Task 7) — dua belas murid tidak boleh
-   * menjadi dua belas perjalanan bolak-balik. Murid yang belum ditandai
-   * sengaja tidak ikut dikirim: tidak ada status yang bisa dikarang untuk
-   * mereka, dan gerbang server yang akan menahannya.
+   * Tanda yang BERUBAH sejak layar dimuat.
+   *
+   * Bukan seluruh roster: setiap kiriman menulis ulang markedAt/markedBy,
+   * jadi mengirim tanda yang tidak disentuh akan mengatasnamakan penekan
+   * tombol atas keputusan orang lain — kehadiran yang tadinya ditandai admin
+   * atau guru pengganti mendadak tercatat sebagai keputusan guru ini. Murid
+   * yang belum ditandai juga tidak ikut: tidak ada status yang bisa dikarang
+   * untuk mereka.
    */
-  async function putAttendance(): Promise<boolean> {
-    const marks = roster
-      .filter((r) => attendance[r.studentId]?.status)
+  function changedMarks(): {
+    studentId: string;
+    status: string;
+    excuseReason: string;
+  }[] {
+    return roster
+      .filter((r) => {
+        const current = attendance[r.studentId];
+        if (!current?.status) return false;
+        const saved = session.marks[r.studentId];
+        if (!saved || saved.status === "no_info") return true;
+        return (
+          saved.status !== current.status ||
+          (saved.excuseReason ?? "") !== (current.excuseReason ?? "")
+        );
+      })
       .map((r) => ({
         studentId: r.studentId,
         status: attendance[r.studentId].status,
         excuseReason: attendance[r.studentId].excuseReason ?? "",
       }));
-    if (marks.length === 0) {
-      setError("Belum ada kehadiran yang ditandai.");
-      return false;
-    }
+  }
+
+  /**
+   * SATU request untuk seluruh perubahan (Task 7) — dua belas murid tidak
+   * boleh menjadi dua belas perjalanan bolak-balik.
+   *
+   * "noop" bukan kegagalan: tidak ada yang berubah, jadi tidak ada yang perlu
+   * dikirim. Pemanggilnya yang memutuskan apakah itu layak dilaporkan.
+   */
+  async function putAttendance(): Promise<"ok" | "noop" | "failed"> {
+    const marks = changedMarks();
+    if (marks.length === 0) return "noop";
 
     const response = await fetch(`/api/sessions/${session.id}/attendance`, {
       method: "PUT",
@@ -150,9 +175,9 @@ export function SessionCard({
     if (!response.ok) {
       const body = payload as { error?: string };
       setError(body.error ?? "Gagal menyimpan kehadiran.");
-      return false;
+      return "failed";
     }
-    return true;
+    return "ok";
   }
 
   async function saveAttendance(): Promise<void> {
@@ -160,9 +185,21 @@ export function SessionCard({
     setError(null);
     setNotice(null);
 
-    const ok = await putAttendance();
+    const outcome = await putAttendance();
     setBusy(false);
-    if (!ok) return;
+    if (outcome === "failed") return;
+
+    if (outcome === "noop") {
+      // Dibedakan supaya guru tahu MANA yang terjadi: roster yang belum
+      // disentuh sama sekali bukan hal yang sama dengan roster yang memang
+      // sudah tersimpan seperti ini.
+      setNotice(
+        unmarkedCount === roster.length
+          ? "Belum ada kehadiran yang ditandai."
+          : "Tidak ada perubahan untuk disimpan.",
+      );
+      return;
+    }
 
     setNotice("Kehadiran tersimpan.");
     router.refresh();
@@ -189,8 +226,9 @@ export function SessionCard({
     // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
     // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
     if (action === "complete" && roster.length > 0) {
-      const saved = await putAttendance();
-      if (!saved) {
+      // "noop" lolos: roster memang sudah lengkap tersimpan, tidak ada yang
+      // perlu ditulis ulang.
+      if ((await putAttendance()) === "failed") {
         setBusy(false);
         setPending(null);
         return;

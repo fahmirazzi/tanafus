@@ -9,13 +9,26 @@ import {
   requireRole,
 } from "@/lib/auth-guard";
 import { activeRoster } from "@/lib/class-groups";
+import { toTimeInputWIB } from "@/lib/datetime";
 import { findTeacherSlotConflict } from "@/lib/sessions";
 import { TX_OPTIONS } from "@/lib/users";
+import { zonedDateKey, zonedDayOfWeek } from "@/lib/zoned-date";
 import { classGroupSchema } from "@/lib/validations/class";
 import { RoleName, SessionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+/**
+ * Sesi yang ikut berpindah saat guru class group diganti: yang belum final.
+ * Dipakai DUA kali — sekali untuk mengecek bentrok sebelum memindahkan, dan
+ * sekali untuk memindahkannya — dan keduanya wajib memakai daftar yang sama,
+ * kalau tidak ada sesi yang pindah tanpa pernah dicek bentrok.
+ */
+const MOVABLE_STATUSES: SessionStatus[] = [
+  SessionStatus.scheduled,
+  SessionStatus.in_progress,
+];
 
 const CLASS_GROUP_DETAIL_SELECT = {
   id: true,
@@ -143,12 +156,42 @@ export async function PATCH(
         where: { classGroupId: id, isActive: true },
         select: { dayOfWeek: true, startTime: true, durationMinutes: true },
       });
-      for (const slot of activeSchedules) {
+
+      // Template mingguan SAJA tidak cukup: sesi pengganti (make-up) sengaja
+      // diletakkan di luar template, sehingga memindahkannya bersama yang
+      // lain bisa menaruh guru baru di jam yang sudah ia pakai tanpa satu pun
+      // peringatan. Jendela yang dicek karena itu gabungan slot aktif DAN jam
+      // nyata setiap sesi yang benar-benar akan ikut pindah.
+      const movingSessions = await prisma.session.findMany({
+        where: { classGroupId: id, status: { in: MOVABLE_STATUSES } },
+        select: { scheduledAt: true, durationMinutes: true },
+      });
+
+      type SlotWindow = {
+        dayOfWeek: number;
+        startTime: string;
+        durationMinutes: number;
+      };
+      const windowKey = (w: SlotWindow): string =>
+        `${w.dayOfWeek}-${w.startTime}-${w.durationMinutes}`;
+
+      const windows = new Map<string, SlotWindow>();
+      for (const slot of activeSchedules) windows.set(windowKey(slot), slot);
+      for (const session of movingSessions) {
+        const w: SlotWindow = {
+          dayOfWeek: zonedDayOfWeek(zonedDateKey(session.scheduledAt)),
+          startTime: toTimeInputWIB(session.scheduledAt),
+          durationMinutes: session.durationMinutes,
+        };
+        windows.set(windowKey(w), w);
+      }
+
+      for (const w of windows.values()) {
         const conflict = await findTeacherSlotConflict({
           teacherId,
-          dayOfWeek: slot.dayOfWeek,
-          startTime: slot.startTime,
-          durationMinutes: slot.durationMinutes,
+          dayOfWeek: w.dayOfWeek,
+          startTime: w.startTime,
+          durationMinutes: w.durationMinutes,
           ignoreClassGroupId: id,
         });
         if (conflict) {
@@ -170,16 +213,22 @@ export async function PATCH(
         // (status/attendance route menjaga session.teacherId) sementara guru
         // lama tetap menerima honornya.
         //
-        // Yang ikut pindah HANYA sesi `scheduled` yang belum lewat. Sesi
-        // completed dan cancelled_institution adalah RIWAYAT: menulis ulang
-        // siapa yang mengajar kelas yang sudah usai akan merusak jejak honor
-        // yang terlanjur terbit atas nama guru lama.
+        // Yang ikut pindah adalah sesi yang BELUM final — `scheduled` dan
+        // `in_progress`. Sesi completed dan cancelled_* adalah RIWAYAT:
+        // menulis ulang siapa yang mengajar kelas yang sudah usai akan
+        // merusak jejak honor yang terlanjur terbit atas nama guru lama.
+        //
+        // Sengaja TIDAK dibatasi `scheduledAt > sekarang`. Pemindahan guru
+        // justru paling sering dipicu saat guru mendadak berhalangan HARI
+        // INI: sesi yang jamnya sudah lewat tapi belum ditutup, dan sesi yang
+        // sudah dimulai, akan tertinggal pada guru lama — guru lama kehilangan
+        // akses ke kelasnya (halaman kelas menggerbangi lewat
+        // ClassGroup.teacherId) sementara guru baru kena 403 (route sesi
+        // menggerbangi lewat Session.teacherId), sehingga sesi itu tidak bisa
+        // ditutup oleh siapa pun kecuali admin. Honor belum terbit untuk sesi
+        // yang belum selesai, jadi tidak ada jejak yang rusak.
         await tx.session.updateMany({
-          where: {
-            classGroupId: id,
-            status: SessionStatus.scheduled,
-            scheduledAt: { gt: new Date() },
-          },
+          where: { classGroupId: id, status: { in: MOVABLE_STATUSES } },
           data: { teacherId },
         });
       }

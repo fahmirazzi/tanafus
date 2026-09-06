@@ -7,6 +7,7 @@
 # di bawah folder yang sama, dan pola menyeluruh akan membuat skill baru di
 # sana diabaikan git tanpa suara.
 **/.claude/launch.json
+**/.claude/settings.local.json
 **/.claude/skills/find-skills/
 **/.agents/
 skills-lock.json

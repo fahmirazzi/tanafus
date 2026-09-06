@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { timeOverlaps } from "@/lib/time-window";
 import { OCCUPYING_STATUSES } from "@/lib/validations/session";
-import { zonedDayOfWeek } from "@/lib/zoned-date";
+import { zonedDateKey, zonedDayOfWeek } from "@/lib/zoned-date";
 
 /**
  * Helper tanggal murni dipindah ke `@/lib/zoned-date` (lihat berkas itu)
@@ -112,12 +112,25 @@ export type TeacherSlotQuery = {
 export async function findTeacherRegularSlotConflict(
   input: TeacherSlotQuery,
 ): Promise<TeacherSlotConflict | null> {
+  // AcademicPeriod.endDate bertipe @db.Date, jadi pembandingnya tanggal lokal
+  // lembaga pada tengah malam UTC — periode yang berakhir HARI INI tetap
+  // terhitung menghalangi.
+  const todayLocal = new Date(`${zonedDateKey(new Date())}T00:00:00.000Z`);
+
   const candidates = await prisma.classGroupSchedule.findMany({
     where: {
       dayOfWeek: input.dayOfWeek,
       isActive: true,
       classGroup: {
         teacherId: input.teacherId,
+        // Yang boleh menghalangi hanyalah kelas yang MASIH menghasilkan sesi.
+        // Gerbangnya disamakan dengan session-generator (shouldSkipClassGroup
+        // + regularCandidateDateKeys): kelas non-"open" dan periode yang sudah
+        // lewat tidak pernah membuat sesi lagi. Tanpa syarat ini blokirnya
+        // PERMANEN — dan belum ada satu pun endpoint yang bisa menutup atau
+        // mengarsipkan class group, jadi tidak ada jalan keluar bagi admin.
+        status: "open",
+        period: { endDate: { gte: todayLocal } },
         ...(input.ignoreClassGroupId
           ? { id: { not: input.ignoreClassGroupId } }
           : {}),

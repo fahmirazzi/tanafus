@@ -91,6 +91,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       prisma.user.findFirst({
         where: {
           id: teacherId,
+          // Sama seperti PATCH: akun yang sudah dianonimkan tidak boleh
+          // ditugaskan mengajar — shouldSkipClassGroup akan langsung
+          // menghentikan generasi sesi kelas ini.
+          deletedAt: null,
           roles: { some: { role: { name: RoleName.teacher } } },
         },
         select: { id: true },

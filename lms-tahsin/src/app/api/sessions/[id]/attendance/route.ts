@@ -102,9 +102,16 @@ export async function PUT(
       }
     }, TX_OPTIONS);
 
+    // Dihitung dari apa yang TERSIMPAN, bukan dari payload: klien kini
+    // mengirim hanya tanda yang berubah, jadi menghitungnya dari kiriman akan
+    // melaporkan roster belum lengkap padahal seluruhnya sudah bertanda.
+    const stored = await prisma.sessionAttendance.findMany({
+      where: { sessionId: id },
+      select: { studentId: true, status: true },
+    });
     const missing = missingFromRoster(
       roster.map((r) => r.studentId),
-      marks,
+      stored,
     );
 
     return apiOk({
