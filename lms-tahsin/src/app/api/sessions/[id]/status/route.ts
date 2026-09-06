@@ -168,16 +168,24 @@ export async function POST(
           );
         }
 
+        // `ignoreClassGroupId` SENGAJA tidak dikirim di sini. Saat membuat
+        // sesi pengganti, kalender kelas ini sendiri justru yang paling perlu
+        // dicek: menaruh make-up di slot mingguan kelasnya sendiri akan
+        // menabrak sesi rutin yang sudah tergenerate di sana, dan unique
+        // (classGroupId, scheduledAt) menolaknya di level database. Membutakan
+        // pengecekan terhadap kelas sendiri hanya menunda kegagalan sampai
+        // insert — di dalam transaksi, sehingga pembatalannya ikut batal.
         const conflict = await findTeacherSlotConflict({
           teacherId: session.teacherId,
           dayOfWeek: zonedDayOfWeek(makeupAt.date),
           startTime: makeupAt.startTime,
           durationMinutes: session.durationMinutes,
-          ignoreClassGroupId: session.classGroupId,
         });
         if (conflict) {
           return apiError(
-            `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
+            conflict.classGroupId === session.classGroupId
+              ? "Kelas ini sudah punya jadwal rutin pada hari dan jam tersebut. Pilih waktu lain untuk sesi pengganti."
+              : `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
             422,
           );
         }
@@ -195,93 +203,116 @@ export async function POST(
         ? formatTanggalJamWIB(makeupScheduledAt)
         : null;
 
-      // BR-09: peristiwa sesi reguler menyebar ke murid aktif + wali.
-      // Untuk cancel_institution, guru TIDAK diikutsertakan karena yang
-      // melakukan pembatalan adalah guru itu sendiri — tidak perlu tahu
-      // tentang aksi yang baru saja dia lakukan (BR-09: tabel membedakan
-      // pembatalan/penjadwalan dari reminder H-1).
-      const baseAudience = await getClassAudienceIds(session.classGroupId);
+      // BR-09: dari ketiga aksi reguler, HANYA cancel_institution yang
+      // memberitahu siapa pun — `start` dan `complete` tidak mengirim
+      // notifikasi apa pun, jadi rosternya tidak perlu diambil sama sekali.
+      // Gurunya sendiri tidak diikutsertakan: dialah yang menekan tombol
+      // pembatalan, dan BR-09 membedakan pembatalan dari reminder H-1.
       const audience =
         regularAction === "cancel_institution"
-          ? baseAudience
-          : [...baseAudience, earnerId];
+          ? await getClassAudienceIds(session.classGroupId)
+          : [];
 
-      const result = await prisma.$transaction(async (tx) => {
-        await tx.session.update({
-          where: { id },
-          data: {
-            status: nextStatus,
-            ...(notes !== undefined
-              ? { notes: notes.trim() ? notes.trim() : null }
-              : {}),
-            ...(lessonUpdate !== undefined ? { lessonId: lessonUpdate } : {}),
-          },
-        });
-
-        await writeAudit(tx, {
-          actorId: user.id,
-          entity: "Session",
-          entityId: id,
-          action: "status_change",
-          oldData: { status: previousStatus },
-          newData: { status: nextStatus, action: regularAction },
-        });
-
-        // BR-05.5/BR-05.6: honor guru, TANPA charge murid — biaya periode
-        // sudah menutupinya. createsCharge/createsEarning di
-        // regular-sessions.ts yang menentukan cabangnya; di sini tidak
-        // pernah menulis SessionCharge untuk tipe reguler.
-        const effects = await applyCompletionEffects(tx, {
-          sessionId: id,
-          type: session.type,
-          nextStatus,
-          actorId: user.id,
-          studentId: null,
-          durationMinutes: session.durationMinutes,
-          earnerId,
-          chargeAmount: null,
-          earningAmount: honorPerSession,
-        });
-
-        let makeupSessionId: string | null = null;
-        if (regularAction === "cancel_institution" && makeupScheduledAt) {
-          const makeup = await tx.session.create({
+      const runRegularTransaction = () =>
+        prisma.$transaction(async (tx) => {
+          await tx.session.update({
+            where: { id },
             data: {
-              type: SessionType.regular,
-              classGroupId: session.classGroupId,
-              teacherId: session.teacherId,
-              scheduledAt: makeupScheduledAt,
-              durationMinutes: session.durationMinutes,
-              isMakeupFor: id,
+              status: nextStatus,
+              ...(notes !== undefined
+                ? { notes: notes.trim() ? notes.trim() : null }
+                : {}),
+              ...(lessonUpdate !== undefined ? { lessonId: lessonUpdate } : {}),
             },
-            select: { id: true },
           });
-          makeupSessionId = makeup.id;
 
           await writeAudit(tx, {
             actorId: user.id,
             entity: "Session",
-            entityId: makeup.id,
-            action: "create_makeup",
-            newData: {
-              isMakeupFor: id,
-              scheduledAt: makeupScheduledAt.toISOString(),
-            },
+            entityId: id,
+            action: "status_change",
+            oldData: { status: previousStatus },
+            newData: { status: nextStatus, action: regularAction },
           });
 
-          // BR-09: pembatalan kelas wajib diberitahukan, sekaligus kabar
-          // sesi penggantinya.
-          await createNotifications(tx, {
-            userIds: audience,
-            type: "session_cancelled_institution",
-            title: "Kelas diliburkan",
-            body: `Kelas ${className} pada ${waktu} dibatalkan lembaga. Sesi pengganti dijadwalkan ${waktuPengganti}.`,
-            data: { sessionId: id, makeupSessionId },
+          // BR-05.5/BR-05.6: honor guru, TANPA charge murid — biaya periode
+          // sudah menutupinya. createsCharge/createsEarning di
+          // regular-sessions.ts yang menentukan cabangnya; di sini tidak
+          // pernah menulis SessionCharge untuk tipe reguler.
+          const effects = await applyCompletionEffects(tx, {
+            sessionId: id,
+            type: session.type,
+            nextStatus,
+            actorId: user.id,
+            studentId: null,
+            durationMinutes: session.durationMinutes,
+            earnerId,
+            chargeAmount: null,
+            earningAmount: honorPerSession,
           });
+
+          let makeupSessionId: string | null = null;
+          if (regularAction === "cancel_institution" && makeupScheduledAt) {
+            const makeup = await tx.session.create({
+              data: {
+                type: SessionType.regular,
+                classGroupId: session.classGroupId,
+                teacherId: session.teacherId,
+                scheduledAt: makeupScheduledAt,
+                durationMinutes: session.durationMinutes,
+                isMakeupFor: id,
+              },
+              select: { id: true },
+            });
+            makeupSessionId = makeup.id;
+
+            await writeAudit(tx, {
+              actorId: user.id,
+              entity: "Session",
+              entityId: makeup.id,
+              action: "create_makeup",
+              newData: {
+                isMakeupFor: id,
+                scheduledAt: makeupScheduledAt.toISOString(),
+              },
+            });
+
+            // BR-09: pembatalan kelas wajib diberitahukan, sekaligus kabar
+            // sesi penggantinya.
+            await createNotifications(tx, {
+              userIds: audience,
+              type: "session_cancelled_institution",
+              title: "Kelas diliburkan",
+              body: `Kelas ${className} pada ${waktu} dibatalkan lembaga. Sesi pengganti dijadwalkan ${waktuPengganti}.`,
+              data: { sessionId: id, makeupSessionId },
+            });
+          }
+
+          return { effects, makeupSessionId };
+        }, TX_OPTIONS);
+
+      let result: Awaited<ReturnType<typeof runRegularTransaction>>;
+      try {
+        result = await runRegularTransaction();
+      } catch (error) {
+        // Pengecekan slot di atas memakai template jadwal mingguan, sedangkan
+        // unique (classGroupId, scheduledAt) menjaga SESI konkret — sesi
+        // pengganti lain, atau sesi yang tanggalnya di luar template. Sisa
+        // celah itu mendarat di sini sebagai P2002. Tanpa cabang ini admin
+        // hanya melihat 500 buram, padahal transaksinya sudah rollback
+        // sehingga sesi aslinya tetap `scheduled` — bukan setengah dibatalkan.
+        if (
+          typeof error === "object" &&
+          error !== null &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          return apiError(
+            "Kelas ini sudah punya sesi pada waktu tersebut. Pilih jam lain untuk sesi pengganti.",
+            422,
+          );
         }
-
-        return { effects, makeupSessionId };
-      }, TX_OPTIONS);
+        throw error;
+      }
 
       if (regularAction === "cancel_institution") {
         // BR-09: dikirim setelah transaksi commit — lihat catatan di

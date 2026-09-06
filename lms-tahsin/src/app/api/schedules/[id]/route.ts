@@ -7,6 +7,7 @@ import {
   findScheduleConflict,
   toDateOrNull,
 } from "@/lib/schedules";
+import { findTeacherRegularSlotConflict } from "@/lib/sessions";
 import {
   DAY_OF_WEEK_LABEL,
   updateScheduleSchema,
@@ -77,6 +78,22 @@ export async function PATCH(
       if (conflict) {
         return apiError(
           `Bentrok dengan jadwal ${conflict.student.fullName} bersama ${conflict.teacher.fullName} pada ${DAY_OF_WEEK_LABEL[conflict.dayOfWeek]} ${conflict.startTime}`,
+          422,
+        );
+      }
+
+      // Spec §4: bentrok lintas tipe dua arah. Memindahkan jadwal privat ke
+      // jam yang sudah dipakai kelas reguler guru ini sama terlarangnya
+      // dengan membuatnya di sana sejak awal.
+      const regularConflict = await findTeacherRegularSlotConflict({
+        teacherId: existing.teacherId,
+        dayOfWeek,
+        startTime,
+        durationMinutes,
+      });
+      if (regularConflict) {
+        return apiError(
+          `Guru ini sudah punya ${regularConflict.label} pada jam yang sama. Pilih jam lain.`,
           422,
         );
       }

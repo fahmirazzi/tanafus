@@ -21,6 +21,7 @@ import {
   findScheduleConflict,
   toDateOrNull,
 } from "@/lib/schedules";
+import { findTeacherRegularSlotConflict } from "@/lib/sessions";
 import { assertStudentNotSuspended } from "@/lib/suspension";
 import { DAY_OF_WEEK_LABEL } from "@/lib/validations/schedule";
 import {
@@ -140,6 +141,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (conflict) {
       return apiError(
         `Bentrok dengan jadwal ${conflict.student.fullName} bersama ${conflict.teacher.fullName} pada ${DAY_OF_WEEK_LABEL[conflict.dayOfWeek]} ${conflict.startTime}`,
+        422,
+      );
+    }
+
+    // Spec §4: bentrok lintas tipe berlaku DUA ARAH ("dan sebaliknya"). Slot
+    // kelas reguler milik guru ini menghalangi jadwal privat baru, persis
+    // seperti jadwal privat menghalangi slot kelas reguler di route
+    // class-groups/[id]/schedules. Hanya sisi REGULER yang dicek di sini —
+    // sisi privat sudah ditangani findScheduleConflict di atas, lengkap
+    // dengan aturan masa berlakunya.
+    const regularConflict = await findTeacherRegularSlotConflict({
+      teacherId,
+      dayOfWeek,
+      startTime,
+      durationMinutes,
+    });
+    if (regularConflict) {
+      return apiError(
+        `Guru ini sudah punya ${regularConflict.label} pada jam yang sama. Pilih jam lain.`,
         422,
       );
     }

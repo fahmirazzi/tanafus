@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { timeOverlaps } from "@/lib/time-window";
 import { OCCUPYING_STATUSES } from "@/lib/validations/session";
 import { zonedDayOfWeek } from "@/lib/zoned-date";
 
@@ -84,41 +85,36 @@ export async function findSessionConflict(params: {
   };
 }
 
-/**
- * Seorang guru tidak boleh terjadwal ganda LINTAS tipe. Pengecekan yang ada
- * hanya melihat jadwal privat; kelas reguler menambah sumber bentrok kedua.
- *
- * Keterbatasan yang disadari (sama seperti pengecekan privat): pembandingnya
- * adalah sesi yang sudah tergenerate plus template jadwal aktif, bukan simulasi
- * penuh setiap kemunculan sampai akhir periode.
- */
-export async function findTeacherSlotConflict(input: {
+export type TeacherSlotConflict = {
+  kind: "private" | "regular";
+  label: string;
+  /** Hanya terisi untuk `kind: "regular"` — dipakai pemanggil yang perlu tahu
+   *  apakah yang bentrok adalah kelas itu sendiri atau kelas lain. */
+  classGroupId?: string;
+};
+
+export type TeacherSlotQuery = {
   teacherId: string;
   dayOfWeek: number;
   startTime: string;
   durationMinutes: number;
   ignoreClassGroupId?: string;
-}): Promise<{ kind: "private" | "regular"; label: string } | null> {
-  const privateHit = await prisma.privateRecurringSchedule.findFirst({
-    where: {
-      teacherId: input.teacherId,
-      dayOfWeek: input.dayOfWeek,
-      startTime: input.startTime,
-      isActive: true,
-    },
-    select: { student: { select: { fullName: true } } },
-  });
-  if (privateHit) {
-    return {
-      kind: "private",
-      label: `jadwal privat dengan ${privateHit.student.fullName}`,
-    };
-  }
+};
 
-  const regularHit = await prisma.classGroupSchedule.findFirst({
+/**
+ * Slot kelas reguler milik guru yang menimpa jendela waktu yang diminta.
+ *
+ * `durationMinutes` BENAR-BENAR dipakai: pembandingnya `timeOverlaps`, sama
+ * seperti `findScheduleConflict` di sisi privat. Versi lama hanya mencocokkan
+ * `startTime` persis, sehingga kelas 60 menit pukul 16:00 lolos begitu saja
+ * terhadap jadwal pukul 16:30 — padahal gurunya jelas tidak bisa di dua tempat.
+ */
+export async function findTeacherRegularSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  const candidates = await prisma.classGroupSchedule.findMany({
     where: {
       dayOfWeek: input.dayOfWeek,
-      startTime: input.startTime,
       isActive: true,
       classGroup: {
         teacherId: input.teacherId,
@@ -127,13 +123,65 @@ export async function findTeacherSlotConflict(input: {
           : {}),
       },
     },
-    select: { classGroup: { select: { name: true } } },
+    select: {
+      startTime: true,
+      durationMinutes: true,
+      classGroup: { select: { id: true, name: true } },
+    },
   });
-  if (regularHit) {
-    return { kind: "regular", label: `kelas ${regularHit.classGroup.name}` };
-  }
 
-  return null;
+  const hit = candidates.find((c) => timeOverlaps(input, c));
+  if (!hit) return null;
+
+  return {
+    kind: "regular",
+    label: `kelas ${hit.classGroup.name}`,
+    classGroupId: hit.classGroup.id,
+  };
+}
+
+/** Jadwal privat aktif milik guru yang menimpa jendela waktu yang diminta. */
+export async function findTeacherPrivateSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  const candidates = await prisma.privateRecurringSchedule.findMany({
+    where: {
+      teacherId: input.teacherId,
+      dayOfWeek: input.dayOfWeek,
+      isActive: true,
+    },
+    select: {
+      startTime: true,
+      durationMinutes: true,
+      student: { select: { fullName: true } },
+    },
+  });
+
+  const hit = candidates.find((c) => timeOverlaps(input, c));
+  if (!hit) return null;
+
+  return {
+    kind: "private",
+    label: `jadwal privat dengan ${hit.student.fullName}`,
+  };
+}
+
+/**
+ * Seorang guru tidak boleh terjadwal ganda LINTAS tipe, DUA ARAH (spec §4):
+ * jadwal privat menghalangi slot kelas reguler, dan slot kelas reguler
+ * menghalangi jadwal privat.
+ *
+ * Keterbatasan yang disadari (sama seperti pengecekan privat): pembandingnya
+ * adalah template jadwal aktif, bukan simulasi penuh setiap kemunculan sampai
+ * akhir periode.
+ */
+export async function findTeacherSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  return (
+    (await findTeacherPrivateSlotConflict(input)) ??
+    (await findTeacherRegularSlotConflict(input))
+  );
 }
 
 // --- navigasi mingguan ---

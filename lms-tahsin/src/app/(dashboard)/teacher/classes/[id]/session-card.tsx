@@ -48,6 +48,16 @@ const ATTENDANCE_OPTIONS = [
   { value: "excused", label: "Izin" },
 ];
 
+/**
+ * Status kosong = guru BELUM memilih apa pun untuk murid ini.
+ *
+ * Sengaja tidak ada nilai awal "Hadir": BR-02.6a menjadikan kehadiran gerbang
+ * kenaikan level, dan gerbang server (spec §5.3) hanya bermakna kalau layarnya
+ * tidak mengisinya sendiri. Prasetel diam-diam justru lebih buruk daripada
+ * tanpa gerbang — hasilnya tampak seperti keputusan guru padahal bukan.
+ */
+const UNMARKED = "";
+
 const selectClass =
   "h-9 w-full border-b border-b-input bg-transparent text-sm text-plum-700 outline-none focus-visible:border-b-ring";
 
@@ -74,10 +84,17 @@ export function SessionCard({
     Record<string, { status: string; excuseReason: string }>
   >(() =>
     Object.fromEntries(
-      roster.map((r) => [
-        r.studentId,
-        session.marks[r.studentId] ?? { status: "present", excuseReason: "" },
-      ]),
+      roster.map((r) => {
+        const saved = session.marks[r.studentId];
+        // `no_info` adalah nilai bawaan kolom, bukan pilihan guru — di layar
+        // ia diperlakukan sama dengan belum ditandai.
+        const status =
+          saved && saved.status !== "no_info" ? saved.status : UNMARKED;
+        return [
+          r.studentId,
+          { status, excuseReason: saved?.excuseReason ?? "" },
+        ];
+      }),
     ),
   );
   const [lessonId, setLessonId] = useState(session.lessonId ?? "");
@@ -92,6 +109,11 @@ export function SessionCard({
     canApplyRegularAction(session.status, action),
   );
 
+  const unmarkedCount = roster.filter(
+    (r) => !attendance[r.studentId]?.status,
+  ).length;
+  const rosterComplete = unmarkedCount === 0;
+
   function setMark(studentId: string, status: string): void {
     setAttendance((prev) => ({
       ...prev,
@@ -99,30 +121,49 @@ export function SessionCard({
     }));
   }
 
+  /**
+   * SATU request untuk seluruh roster (Task 7) — dua belas murid tidak boleh
+   * menjadi dua belas perjalanan bolak-balik. Murid yang belum ditandai
+   * sengaja tidak ikut dikirim: tidak ada status yang bisa dikarang untuk
+   * mereka, dan gerbang server yang akan menahannya.
+   */
+  async function putAttendance(): Promise<boolean> {
+    const marks = roster
+      .filter((r) => attendance[r.studentId]?.status)
+      .map((r) => ({
+        studentId: r.studentId,
+        status: attendance[r.studentId].status,
+        excuseReason: attendance[r.studentId].excuseReason ?? "",
+      }));
+    if (marks.length === 0) {
+      setError("Belum ada kehadiran yang ditandai.");
+      return false;
+    }
+
+    const response = await fetch(`/api/sessions/${session.id}/attendance`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ marks }),
+    });
+    const payload: unknown = await response.json();
+
+    if (!response.ok) {
+      const body = payload as { error?: string };
+      setError(body.error ?? "Gagal menyimpan kehadiran.");
+      return false;
+    }
+    return true;
+  }
+
   async function saveAttendance(): Promise<void> {
     setBusy(true);
     setError(null);
     setNotice(null);
 
-    const response = await fetch(`/api/sessions/${session.id}/attendance`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        marks: roster.map((r) => ({
-          studentId: r.studentId,
-          status: attendance[r.studentId]?.status ?? "present",
-          excuseReason: attendance[r.studentId]?.excuseReason ?? "",
-        })),
-      }),
-    });
-    const payload: unknown = await response.json();
+    const ok = await putAttendance();
     setBusy(false);
+    if (!ok) return;
 
-    if (!response.ok) {
-      const body = payload as { error?: string };
-      setError(body.error ?? "Gagal menyimpan kehadiran.");
-      return;
-    }
     setNotice("Kehadiran tersimpan.");
     router.refresh();
   }
@@ -132,10 +173,29 @@ export function SessionCard({
       setError("Tanggal dan jam sesi pengganti wajib diisi untuk membatalkan kelas.");
       return;
     }
+    if (action === "complete" && !rosterComplete) {
+      setError(
+        `Masih ada ${unmarkedCount} murid tanpa status kehadiran. Tandai semuanya lebih dulu.`,
+      );
+      setPending(null);
+      return;
+    }
 
     setBusy(true);
     setError(null);
     setNotice(null);
+
+    // Menutup kelas menuntut roster lengkap di sisi server (spec §5.3).
+    // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
+    // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
+    if (action === "complete" && roster.length > 0) {
+      const saved = await putAttendance();
+      if (!saved) {
+        setBusy(false);
+        setPending(null);
+        return;
+      }
+    }
 
     const response = await fetch(`/api/sessions/${session.id}/status`, {
       method: "POST",
@@ -220,10 +280,11 @@ export function SessionCard({
                   <span className="text-sm text-plum-700">{r.fullName}</span>
                   <select
                     aria-label={`Kehadiran ${r.fullName}`}
-                    value={attendance[r.studentId]?.status ?? "present"}
+                    value={attendance[r.studentId]?.status ?? UNMARKED}
                     onChange={(e) => setMark(r.studentId, e.target.value)}
                     className={`${selectClass} w-36`}
                   >
+                    <option value={UNMARKED}>— Belum ditandai —</option>
                     {ATTENDANCE_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
@@ -234,6 +295,12 @@ export function SessionCard({
               ))}
             </ul>
           )}
+          {roster.length > 0 && !rosterComplete ? (
+            <p className="text-sm text-plum-500">
+              {unmarkedCount} dari {roster.length} murid belum ditandai. Kelas
+              baru bisa ditutup setelah semuanya punya status kehadiran.
+            </p>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -250,19 +317,27 @@ export function SessionCard({
             Status sesi ini sudah final dan tidak bisa diubah lagi.
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-            {available.map((action) => (
-              <Button
-                key={action}
-                type="button"
-                variant={action === "cancel_institution" ? "destructive" : "default"}
-                size="sm"
-                disabled={busy}
-                onClick={() => setPending(action)}
-              >
-                {REGULAR_ACTION_LABEL[action]}
-              </Button>
-            ))}
+          <div className="space-y-2 border-t border-border pt-4">
+            <div className="flex flex-wrap gap-2">
+              {available.map((action) => (
+                <Button
+                  key={action}
+                  type="button"
+                  variant={action === "cancel_institution" ? "destructive" : "default"}
+                  size="sm"
+                  disabled={busy || (action === "complete" && !rosterComplete)}
+                  onClick={() => setPending(action)}
+                >
+                  {REGULAR_ACTION_LABEL[action]}
+                </Button>
+              ))}
+            </div>
+            {available.includes("complete") && !rosterComplete ? (
+              <p className="text-sm text-plum-500">
+                &quot;Selesai&quot; terkunci: {unmarkedCount} murid belum
+                ditandai kehadirannya.
+              </p>
+            ) : null}
           </div>
         )}
       </CardContent>
@@ -321,6 +396,7 @@ export function SessionCard({
               size="sm"
               disabled={
                 busy ||
+                (pending === "complete" && !rosterComplete) ||
                 (pending === "cancel_institution" && (!makeupDate || !makeupTime))
               }
               onClick={() => {

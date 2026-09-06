@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ClassAudience } from "@/generated/prisma/enums";
 
 /** Masukan modul kelas reguler B1 (spec B1 §3, §6). */
 
@@ -48,7 +49,9 @@ export const classGroupSchema = z.object({
   periodId: z.string().uuid("Periode tidak valid"),
   teacherId: z.string().uuid("Guru tidak valid"),
   name: z.string().trim().min(2, "Nama minimal 2 karakter").max(120),
-  audience: z.enum(["children", "adult"], { error: "Audience wajib dipilih" }),
+  // Diturunkan dari enum Prisma, bukan diketik ulang: nilai baru di skema
+  // tidak boleh diam-diam ditolak validator ini.
+  audience: z.enum(ClassAudience, { error: "Audience wajib dipilih" }),
   capacity: z.coerce.number().int().min(1).max(100).default(15),
   price: z.coerce.number().min(0, "Harga tidak boleh negatif"),
   honorPerSession: z.coerce.number().min(0, "Honor tidak boleh negatif"),

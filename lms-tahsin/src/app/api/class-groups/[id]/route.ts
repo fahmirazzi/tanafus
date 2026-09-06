@@ -10,8 +10,9 @@ import {
 } from "@/lib/auth-guard";
 import { activeRoster } from "@/lib/class-groups";
 import { findTeacherSlotConflict } from "@/lib/sessions";
+import { TX_OPTIONS } from "@/lib/users";
 import { classGroupSchema } from "@/lib/validations/class";
-import { RoleName } from "@/generated/prisma/enums";
+import { RoleName, SessionStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -118,6 +119,10 @@ export async function PATCH(
       const teacher = await prisma.user.findFirst({
         where: {
           id: teacherId,
+          // Akun yang sudah dianonimkan tidak boleh ditugaskan mengajar:
+          // generator sesi Rilis A pun melewatinya, jadi kelas ini akan
+          // berhenti menghasilkan sesi begitu gurunya terhapus.
+          deletedAt: null,
           roles: { some: { role: { name: RoleName.teacher } } },
         },
         select: { id: true },
@@ -155,7 +160,31 @@ export async function PATCH(
       }
     }
 
-    await prisma.classGroup.update({ where: { id }, data: parsed.data });
+    await prisma.$transaction(async (tx) => {
+      await tx.classGroup.update({ where: { id }, data: parsed.data });
+
+      if (teacherId) {
+        // Spec §4: pemindahan guru adalah operasi manual yang didukung saat
+        // guru cuti panjang — maka sesi yang SUDAH tergenerate harus ikut
+        // pindah, kalau tidak guru baru kena 403 di kelasnya sendiri
+        // (status/attendance route menjaga session.teacherId) sementara guru
+        // lama tetap menerima honornya.
+        //
+        // Yang ikut pindah HANYA sesi `scheduled` yang belum lewat. Sesi
+        // completed dan cancelled_institution adalah RIWAYAT: menulis ulang
+        // siapa yang mengajar kelas yang sudah usai akan merusak jejak honor
+        // yang terlanjur terbit atas nama guru lama.
+        await tx.session.updateMany({
+          where: {
+            classGroupId: id,
+            status: SessionStatus.scheduled,
+            scheduledAt: { gt: new Date() },
+          },
+          data: { teacherId },
+        });
+      }
+    }, TX_OPTIONS);
+
     return apiOk({ id });
   } catch (error) {
     return handleApiError(error);

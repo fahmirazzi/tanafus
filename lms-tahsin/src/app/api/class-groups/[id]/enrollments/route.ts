@@ -96,6 +96,10 @@ export async function POST(
     const student = await prisma.user.findFirst({
       where: {
         id: parsed.data.studentId,
+        // Akun yang sudah dianonimkan tidak boleh didaftarkan lagi: generator
+        // sesi Rilis A melewatinya, jadi murid ini hanya akan menjadi baris
+        // roster mati yang menghalangi penutupan kelas.
+        deletedAt: null,
         roles: { some: { role: { name: RoleName.student } } },
       },
       select: { id: true },
