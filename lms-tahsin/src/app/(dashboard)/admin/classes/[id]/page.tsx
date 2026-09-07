@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
-import { outstandingMakeupObligations, staleScheduledSessions } from "@/lib/class-groups";
+import { enrollmentChargesForClassGroup, outstandingMakeupObligations, staleScheduledSessions } from "@/lib/class-groups";
+import { ChargeManager, type ChargeRow } from "./charge-manager";
 import { formatRupiah } from "@/lib/currency";
 import { formatTanggalJamWIB, formatTanggalWIB } from "@/lib/datetime";
 import { RoleName } from "@/generated/prisma/enums";
@@ -75,9 +76,10 @@ export default async function AdminClassDetailPage({
   });
   if (!group) notFound();
 
-  const [obligations, staleSessions, students, courses, periods, teachers] = await Promise.all([
+  const [obligations, staleSessions, charges, students, courses, periods, teachers] = await Promise.all([
     outstandingMakeupObligations(id),
     staleScheduledSessions(id),
+    enrollmentChargesForClassGroup(id),
     prisma.user.findMany({
       where: { roles: { some: { role: { name: RoleName.student } } } },
       select: { id: true, fullName: true },
@@ -115,6 +117,17 @@ export default async function AdminClassDetailPage({
     status: e.status,
     enrolledAtLabel: formatTanggalWIB(e.enrolledAt),
     droppedAtLabel: e.droppedAt ? formatTanggalWIB(e.droppedAt) : null,
+  }));
+
+  const chargeRows: ChargeRow[] = charges.map((c) => ({
+    id: c.id,
+    enrollmentId: c.enrollmentId,
+    studentName: c.studentName,
+    installmentNo: c.installmentNo,
+    amount: c.amount,
+    dueDate: formatTanggalWIB(c.dueDate),
+    status: c.status,
+    invoiced: c.invoiced,
   }));
 
   const activeRosterIds = new Set(
@@ -287,6 +300,15 @@ export default async function AdminClassDetailPage({
             roster={roster}
             availableStudents={availableStudents}
           />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Tagihan periode</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ChargeManager classGroupId={id} charges={chargeRows} />
         </CardContent>
       </Card>
 
