@@ -213,10 +213,10 @@ export async function POST(
 
         // Jendela pencarian harus selebar sesi TERPANJANG yang mungkin, kalau
         // tidak sesi panjang yang mulai jauh sebelum make-up tidak terambil dan
-        // tumpang tindihnya lolos. Sisi privat memakai 240 karena validatornya
-        // memang membatasi segitu; kelas reguler boleh sampai
-        // MAX_CLASS_DURATION_MINUTES, jadi angkanya diambil dari validator itu
-        // sendiri supaya tidak bisa menyimpang.
+        // tumpang tindihnya lolos. Angkanya diambil dari validator kelas
+        // (MAX_CLASS_DURATION_MINUTES) supaya tidak bisa menyimpang darinya.
+        // findSessionConflict memakai konstanta yang sama, dengan alasan yang
+        // sama.
         const searchSpanMs = MAX_CLASS_DURATION_MINUTES * 60_000;
 
         // Sesi yang sedang dibatalkan IKUT diambil, tidak dikecualikan:

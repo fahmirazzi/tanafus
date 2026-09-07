@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { timeOverlaps } from "@/lib/time-window";
+import { MAX_CLASS_DURATION_MINUTES } from "@/lib/validations/class";
 import { OCCUPYING_STATUSES } from "@/lib/validations/session";
 import { zonedDateKey, zonedDayOfWeek } from "@/lib/zoned-date";
 
@@ -45,14 +46,22 @@ export async function findSessionConflict(params: {
   const startMs = params.scheduledAt.getTime();
   const endMs = startMs + params.durationMinutes * 60_000;
 
-  // Ambil kandidat di sekitar slot; durasi maksimum 240 menit sehingga
-  // jendela 4 jam ke belakang sudah pasti menangkap semua yang mungkin.
+  // Jendela ke belakang harus selebar sesi TERPANJANG yang mungkin ada,
+  // bukan selebar sesi yang sedang dibuat. Query ini TIDAK menyaring type dan
+  // mencocokkan lewat teacherId, sedangkan sesi reguler juga punya teacherId
+  // — jadi kandidatnya termasuk kelas reguler, yang boleh sampai
+  // MAX_CLASS_DURATION_MINUTES. Dengan batas 240 menit yang lama, kelas 300
+  // menit yang mulai lebih dari 4 jam sebelum sesi baru tidak pernah
+  // terambil dan tumpang tindihnya lolos diam-diam.
+  //
+  // Cukupnya bisa dihitung: tumpang tindih menuntut cStart > startMs - cDur,
+  // dan cDur tidak pernah melebihi MAX_CLASS_DURATION_MINUTES.
   const candidates = await prisma.session.findMany({
     where: {
       status: { in: OCCUPYING_STATUSES },
       OR: [{ teacherId: params.teacherId }, { studentId: params.studentId }],
       scheduledAt: {
-        gte: new Date(startMs - 240 * 60_000),
+        gte: new Date(startMs - MAX_CLASS_DURATION_MINUTES * 60_000),
         lt: new Date(endMs),
       },
       ...(params.excludeId ? { NOT: { id: params.excludeId } } : {}),
