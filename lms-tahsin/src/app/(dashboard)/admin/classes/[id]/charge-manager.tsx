@@ -122,6 +122,22 @@ export function ChargeManager({
     setInstallments((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function openConvertForm(enrollmentId: string): void {
+    setConvertingEnrollmentId(enrollmentId);
+    setInstallments([
+      { amount: "", dueDate: "" },
+      { amount: "", dueDate: "" },
+    ]);
+  }
+
+  function closeConvertForm(): void {
+    setConvertingEnrollmentId(null);
+    setInstallments([
+      { amount: "", dueDate: "" },
+      { amount: "", dueDate: "" },
+    ]);
+  }
+
   async function handleConvert(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setFormError(null);
@@ -146,8 +162,14 @@ export function ChargeManager({
     setBusy(false);
 
     if (!response.ok) {
-      const body = payload as { error?: string };
-      setFormError(body.error ?? "Gagal mengubah jadi cicilan.");
+      const body = payload as {
+        error?: string;
+        details?: Record<string, string>;
+      };
+      const firstDetail = body.details
+        ? Object.values(body.details)[0]
+        : undefined;
+      setFormError(body.error ?? firstDetail ?? "Gagal mengubah jadi cicilan.");
       return;
     }
 
@@ -197,13 +219,13 @@ export function ChargeManager({
                       variant="ghost"
                       size="sm"
                       disabled={busy}
-                      onClick={() =>
-                        setConvertingEnrollmentId(
-                          convertingEnrollmentId === c.enrollmentId
-                            ? null
-                            : c.enrollmentId,
-                        )
-                      }
+                      onClick={() => {
+                        if (convertingEnrollmentId === c.enrollmentId) {
+                          closeConvertForm();
+                        } else {
+                          openConvertForm(c.enrollmentId);
+                        }
+                      }}
                     >
                       Ubah jadi cicilan
                     </Button>
@@ -276,7 +298,7 @@ export function ChargeManager({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setConvertingEnrollmentId(null)}
+              onClick={() => closeConvertForm()}
             >
               Batal
             </Button>
