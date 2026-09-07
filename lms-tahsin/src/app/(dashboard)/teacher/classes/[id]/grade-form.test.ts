@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGradePayload, mergeServerGrades } from "./grade-form";
+import { buildGradePayload, mergeServerGrades, scoresAfterSave } from "./grade-form";
 
 describe("buildGradePayload", () => {
   it("membuang sel kosong dan sel berisi spasi dari payload", () => {
@@ -77,5 +77,56 @@ describe("mergeServerGrades", () => {
     });
 
     expect(next["s2:1"]).toBe("5");
+  });
+});
+
+describe("scoresAfterSave", () => {
+  // Ini menggantikan ketergantungan pada router.refresh() untuk resinkronisasi
+  // setelah SUKSES simpan: kalau guru mengosongkan sel yang sudah tersimpan
+  // lalu menekan "Simpan nilai" TANPA mengubah sel lain, server tidak
+  // menyimpan apa pun yang baru (buildGradePayload tidak pernah mengirim sel
+  // kosong) — jadi payload RSC yang dikirim ulang oleh router.refresh() BENAR
+  // identik dengan sebelumnya, React tidak membuat referensi prop `grades`
+  // baru, dan useEffect(..., [grades]) tidak pernah menyala. scoresAfterSave
+  // menghitung state berikutnya secara lokal, tanpa menunggu refresh sama
+  // sekali, sehingga sel yang dikosongkan langsung jatuh kembali ke nilai
+  // server yang sebenarnya tersimpan.
+  it("sel yang dikosongkan (tidak ada di savedPayload) kembali ke nilai server dari serverSnapshot", () => {
+    const next = scoresAfterSave({
+      serverSnapshot: { "s1:1": "77" },
+      savedPayload: [],
+    });
+
+    expect(next["s1:1"]).toBe("77");
+  });
+
+  it("sel yang ada di savedPayload menampilkan nilai yang baru saja disimpan", () => {
+    const next = scoresAfterSave({
+      serverSnapshot: { "s1:1": "77" },
+      savedPayload: [{ studentId: "s1", criterionId: 1, score: 9 }],
+    });
+
+    expect(next["s1:1"]).toBe("9");
+  });
+
+  it("nilai desimal yang baru disimpan dikonversi kembali ke string apa adanya", () => {
+    const next = scoresAfterSave({
+      serverSnapshot: {},
+      savedPayload: [{ studentId: "s1", criterionId: 2, score: 7.5 }],
+    });
+
+    expect(next["s1:2"]).toBe("7.5");
+  });
+
+  it("sel yang tidak pernah punya nilai (tidak di snapshot maupun payload) tetap kosong", () => {
+    // Bukan "0" (Number(undefined) buatan) atau string "undefined" — kuncinya
+    // memang tidak boleh ada di hasil, supaya `scores[key] ?? ""` di layar
+    // tetap merender input kosong.
+    const next = scoresAfterSave({
+      serverSnapshot: { "s1:1": "77" },
+      savedPayload: [],
+    });
+
+    expect(next["s9:9"]).toBeUndefined();
   });
 });

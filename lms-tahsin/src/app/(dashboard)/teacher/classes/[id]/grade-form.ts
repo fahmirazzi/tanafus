@@ -82,3 +82,46 @@ export function mergeServerGrades({
   }
   return next;
 }
+
+/**
+ * Menghitung state `scores` berikutnya SETELAH simpan SUKSES — TANPA
+ * menggantungkan resinkronisasi pada `router.refresh()`.
+ *
+ * Kenapa `router.refresh()` saja tidak cukup di sini (beda dari
+ * mergeServerGrades di atas, yang menangani refresh yang MEMANG membawa data
+ * baru): mengosongkan sebuah sel lalu menekan "Simpan nilai" TIDAK mengubah
+ * apa pun di server — buildGradePayload() dengan sengaja tidak pernah
+ * mengirim sel kosong. Karena server tidak berubah, payload RSC yang dikirim
+ * ulang oleh router.refresh() akan IDENTIK dengan sebelumnya, React tidak
+ * membuat referensi prop `grades` baru untuk subtree ini, dan
+ * `useEffect(..., [grades])` tidak pernah menyala — sel yang dikosongkan
+ * akan tampak kosong SELAMANYA di layar (baru pulih kalau halaman di-reload
+ * penuh), walau server tetap menyimpan nilai lama. JANGAN menghapus fungsi
+ * ini dengan alasan "duplikasi" dari useEffect: keduanya menutup skenario
+ * yang berbeda (refresh yang membawa data baru vs. simpan yang tidak
+ * mengubah apa pun di server).
+ *
+ * `serverSnapshot` adalah snapshot server yang diketahui SEBELUM simpan ini
+ * (previousGrades.current), dan `savedPayload` adalah hasil
+ * `buildGradePayload()` yang barusan benar-benar terkirim dan diterima
+ * server (HTTP ok). Menimpa snapshot lama dengan payload itu memberi state
+ * yang mencerminkan persis apa yang sekarang tersimpan di server: sel yang
+ * baru disimpan menunjukkan nilai barunya, sel yang dikosongkan (tidak ikut
+ * di savedPayload) jatuh kembali ke nilai server lama, dan sel yang tidak
+ * pernah punya nilai di keduanya tetap tidak muncul sama sekali di hasil
+ * (bukan "0" atau "undefined") sehingga `scores[key] ?? ""` di layar tetap
+ * merender input kosong.
+ */
+export function scoresAfterSave({
+  serverSnapshot,
+  savedPayload,
+}: {
+  serverSnapshot: Record<string, string>;
+  savedPayload: GradePayloadItem[];
+}): Record<string, string> {
+  const next: Record<string, string> = { ...serverSnapshot };
+  for (const item of savedPayload) {
+    next[`${item.studentId}:${item.criterionId}`] = String(item.score);
+  }
+  return next;
+}

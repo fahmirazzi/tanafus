@@ -26,7 +26,7 @@ import {
 } from "@/lib/regular-sessions";
 import { SESSION_STATUS_LABEL } from "@/lib/validations/session";
 import { SessionStatus } from "@/generated/prisma/enums";
-import { buildGradePayload, mergeServerGrades } from "./grade-form";
+import { buildGradePayload, mergeServerGrades, scoresAfterSave } from "./grade-form";
 
 export type LessonOption = { id: string; label: string };
 export type RosterStudent = { studentId: string; fullName: string };
@@ -192,6 +192,30 @@ export function SessionCard({
     if (!res.ok) {
       setGradeError(json?.details?.grades ?? json?.error ?? "Gagal menyimpan nilai");
     } else {
+      // JANGAN menggantungkan resinkronisasi ke sini pada router.refresh():
+      // mengosongkan sebuah sel lalu menyimpan TIDAK mengubah apa pun di
+      // server (buildGradePayload sengaja tidak mengirim sel kosong), jadi
+      // payload RSC yang diambil ulang oleh refresh() akan identik dengan
+      // sebelumnya — React tidak membuat referensi prop `grades` baru,
+      // useEffect(..., [grades]) di atas tidak pernah menyala, dan sel yang
+      // dikosongkan akan tampak kosong SELAMANYA sampai halaman di-reload
+      // penuh. Sebagai gantinya, hitung `scores` berikutnya SECARA LOKAL:
+      // mulai dari snapshot server terakhir yang diketahui, lalu timpa
+      // dengan apa yang barusan benar-benar tersimpan (payload ini). Sel
+      // yang dikosongkan (tidak ikut di payload) otomatis jatuh kembali ke
+      // nilai server dari snapshot; sel yang baru disimpan menampilkan nilai
+      // barunya.
+      const nextScores = scoresAfterSave({
+        serverSnapshot: previousGrades.current,
+        savedPayload: payload,
+      });
+      setScores(nextScores);
+      previousGrades.current = nextScores;
+      // Tetap dipanggil untuk kasus lain (mis. guru/admin lain menyunting
+      // data yang sama di tempat lain) — useEffect([grades]) di atas masih
+      // berguna KALAU refresh ini kebetulan membawa referensi `grades` baru
+      // yang benar-benar berbeda. Tidak menghapusnya sengaja: itu bukan
+      // duplikasi, hanya tidak lagi menjadi SATU-SATUNYA jalur resinkronisasi.
       router.refresh();
     }
     setSavingGrades(false);
