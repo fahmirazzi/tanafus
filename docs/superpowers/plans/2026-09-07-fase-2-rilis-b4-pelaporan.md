@@ -21,6 +21,8 @@
 - **Rumus kehadiran yang berlaku (BR-02.6a + BR-02.6b):** `attendancePct = (present + late) / (present + late + excused + absent)`. `excused` **TETAP di penyebut**.
 - Seluruh teks yang dilihat pengguna berbahasa Indonesia.
 - Perintah dijalankan dari `lms-tahsin/`. Uji: `npm run test`. Tipe: `npm run typecheck`. Lint: `npm run lint`.
+- **`npm run typecheck` GAGAL dengan `TS2304: Cannot find name 'LayoutProps'` sampai `npm run build` pernah dijalankan sekali** di ruang kerja ini. `LayoutProps` di-generate Next.js ke `.next/types`, yang tidak ada di worktree baru. Galat itu BUKAN kerusakan yang Anda buat — jalankan `npm run build` sekali, lalu typecheck jadi bersih. Baseline rilis ini sudah diverifikasi: 239 uji lulus, typecheck dan lint bersih.
+- `.env` tidak ikut ke worktree (gitignored). Sudah disalin dari checkout utama; `prisma migrate deploy` di Task 2 menuntutnya.
 - Jangan pernah memakai `--no-verify` atau melewati hook.
 
 ## Struktur Berkas
