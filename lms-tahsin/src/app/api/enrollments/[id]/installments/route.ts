@@ -33,25 +33,27 @@ export async function POST(
     });
     if (!enrollment) return apiError("Enrollment tidak ditemukan", 404);
 
-    const pendingCharges = await prisma.enrollmentCharge.findMany({
-      where: { enrollmentId, status: "pending" },
-      select: { id: true, amount: true, invoiceItems: { select: { id: true } } },
+    const allCharges = await prisma.enrollmentCharge.findMany({
+      where: { enrollmentId },
+      select: { id: true, status: true, amount: true, invoiceItems: { select: { id: true } } },
     });
-    if (pendingCharges.length === 0) {
+    if (allCharges.length === 0) {
       return apiError(
-        "Tidak ada tagihan pending yang bisa diubah jadi cicilan.",
+        "Tidak ada tagihan yang bisa diubah jadi cicilan.",
         422,
       );
     }
-    const alreadyInvoiced = pendingCharges.some((c) => c.invoiceItems.length > 0);
-    if (alreadyInvoiced) {
+    const notConvertible = allCharges.some(
+      (c) => c.status !== "pending" || c.invoiceItems.length > 0,
+    );
+    if (notConvertible) {
       return apiError(
         "Sebagian tagihan sudah diterbitkan sebagai invoice — konversi hanya boleh sebelum diterbitkan.",
         422,
       );
     }
 
-    const originalTotal = pendingCharges.reduce(
+    const originalTotal = allCharges.reduce(
       (sum, c) => sum + Number(c.amount),
       0,
     );
@@ -70,7 +72,7 @@ export async function POST(
 
     const created = await prisma.$transaction(async (tx) => {
       await tx.enrollmentCharge.deleteMany({
-        where: { id: { in: pendingCharges.map((c) => c.id) } },
+        where: { id: { in: allCharges.map((c) => c.id) } },
       });
 
       // Berurutan, bukan Promise.all — satu transaksi Prisma memakai satu

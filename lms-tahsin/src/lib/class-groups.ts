@@ -41,7 +41,7 @@ export async function activeRoster(
   classGroupId: string,
 ): Promise<Array<{ studentId: string; fullName: string }>> {
   const rows = await prisma.enrollment.findMany({
-    where: { classGroupId, status: "active" },
+    where: { classGroupId, status: { in: ["active", "suspended"] } },
     select: { studentId: true, student: { select: { fullName: true } } },
     orderBy: { student: { fullName: "asc" } },
   });

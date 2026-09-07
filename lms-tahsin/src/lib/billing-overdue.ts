@@ -159,6 +159,7 @@ export async function runOverdueSweep(
       status: InvoiceStatus.overdue,
       dueDate: { lte: dateOnly(suspensionCutoff) },
       student: { suspendedAt: null },
+      items: { none: { enrollmentChargeId: { not: null } } },
     },
     select: {
       id: true,

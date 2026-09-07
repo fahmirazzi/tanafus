@@ -97,7 +97,11 @@ export async function autoUnsuspendUserIfClear(
   if (!isAutomaticSuspensionReason(student.suspensionReason)) return;
 
   const stillOverdue = await tx.invoice.count({
-    where: { studentId: params.studentId, status: InvoiceStatus.overdue },
+    where: {
+      studentId: params.studentId,
+      status: InvoiceStatus.overdue,
+      items: { none: { enrollmentChargeId: { not: null } } },
+    },
   });
   if (stillOverdue > 0) return;
 

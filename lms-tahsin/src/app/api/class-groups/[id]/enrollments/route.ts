@@ -138,7 +138,7 @@ export async function POST(
     }
 
     const activeCount = await prisma.enrollment.count({
-      where: { classGroupId: id, status: "active" },
+      where: { classGroupId: id, status: { in: ["active", "suspended"] } },
     });
     if (activeCount >= group.capacity) {
       return apiError(

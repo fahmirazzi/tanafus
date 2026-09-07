@@ -34,7 +34,7 @@ export async function POST(
       where: {
         status: "pending",
         invoiceItems: { none: {} },
-        enrollment: { classGroupId, status: "active" },
+        enrollment: { classGroupId, status: { in: ["active", "suspended"] } },
       },
       select: { id: true },
     });
