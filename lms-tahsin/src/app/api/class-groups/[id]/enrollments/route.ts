@@ -126,6 +126,17 @@ export async function POST(
       }
     }
 
+    const suspendedElsewhere = await prisma.enrollment.findFirst({
+      where: { studentId: parsed.data.studentId, status: "suspended" },
+      select: { id: true },
+    });
+    if (suspendedElsewhere) {
+      return apiError(
+        "Murid ini sedang disuspend karena tunggakan tagihan periode. Selesaikan tagihannya atau cabut suspensinya lebih dulu.",
+        422,
+      );
+    }
+
     const activeCount = await prisma.enrollment.count({
       where: { classGroupId: id, status: "active" },
     });
