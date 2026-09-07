@@ -2,29 +2,15 @@ import { prisma } from "@/lib/prisma";
 import { ForbiddenError, isAdmin } from "@/lib/auth-guard";
 import type { SessionUser } from "@/lib/auth-guard";
 import { PrivateAssignmentStatus } from "@/generated/prisma/enums";
+import { timeOverlaps } from "@/lib/time-window";
 
-/** "16:00" -> 960 menit sejak tengah malam. */
-export function toMinutes(startTime: string): number {
-  const [hour, minute] = startTime.split(":").map(Number);
-  return hour * 60 + minute;
-}
-
-/** 960 + 60 -> "17:00". Dipakai hanya untuk tampilan. */
-export function addMinutesToTime(startTime: string, minutes: number): string {
-  const total = toMinutes(startTime) + minutes;
-  const hour = Math.floor(total / 60) % 24;
-  const minute = total % 60;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-type Window = { startTime: string; durationMinutes: number };
-
-/** Dua slot bentrok bila rentang [mulai, selesai) saling menimpa. */
-export function timeOverlaps(a: Window, b: Window): boolean {
-  const startA = toMinutes(a.startTime);
-  const startB = toMinutes(b.startTime);
-  return startA < startB + b.durationMinutes && startB < startA + a.durationMinutes;
-}
+/**
+ * Aritmetika jam dipindah ke `@/lib/time-window` supaya modul murni lain —
+ * termasuk berkas ujinya — bisa memakainya tanpa ikut menyeret prisma, dan
+ * supaya slot kelas reguler memakai definisi bentrok yang PERSIS sama.
+ * Re-export di sini supaya semua pemanggil lama tidak perlu diubah.
+ */
+export { toMinutes, addMinutesToTime, timeOverlaps } from "@/lib/time-window";
 
 type DateRange = { effectiveFrom: Date | null; effectiveUntil: Date | null };
 

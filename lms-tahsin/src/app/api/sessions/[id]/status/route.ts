@@ -10,8 +10,10 @@ import {
 import { writeAudit } from "@/lib/audit";
 import { computeEarning, resolveSessionAmount } from "@/lib/billing";
 import { invoiceIssuedEmailContent, issueInvoice } from "@/lib/invoice-issuer";
+import { applyCompletionEffects } from "@/lib/session-completion";
 import {
   createNotifications,
+  getClassAudienceIds,
   getStudentAudienceIds,
   sendEventEmail,
 } from "@/lib/notifications";
@@ -22,9 +24,27 @@ import {
   nextStatusFor,
   SESSION_ACTION_LABEL,
 } from "@/lib/session-actions";
-import { TX_OPTIONS } from "@/lib/users";
 import {
+  canApplyRegularAction,
+  regularNextStatus,
+  REGULAR_ACTION_LABEL,
+  type RegularAction,
+} from "@/lib/regular-sessions";
+import { activeRoster } from "@/lib/class-groups";
+import { isRosterComplete } from "@/lib/attendance";
+import {
+  findTeacherSlotConflict,
+  zonedDateKey,
+  zonedDateTimeToUtc,
+  zonedDayOfWeek,
+} from "@/lib/sessions";
+import { timeOverlaps } from "@/lib/time-window";
+import { TX_OPTIONS } from "@/lib/users";
+import { MAX_CLASS_DURATION_MINUTES } from "@/lib/validations/class";
+import {
+  OCCUPYING_STATUSES,
   SESSION_STATUS_LABEL,
+  regularSessionActionSchema,
   sessionActionSchema,
 } from "@/lib/validations/session";
 import { BillingPreference, SessionType } from "@/generated/prisma/enums";
@@ -43,6 +63,11 @@ const DEFAULT_REVENUE_SHARE_PCT = 60;
  * sesi. Idempotensinya bertumpu pada unique sessionId di kedua tabel:
  * createMany + skipDuplicates membuat klik ganda berakhir diam, bukan
  * melempar P2002 dan mengotori log dengan kejadian yang sebenarnya wajar.
+ *
+ * Task 8 menambahkan cabang REGULER sebelum logika privat. Keduanya berbagi
+ * pengambilan sesi dan pengecekan kepemilikan; setelah itu jalurnya terpisah
+ * total karena aturan uangnya berbeda (BR-05.5) dan aksinya sendiri berbeda
+ * (regular-sessions.ts, bukan session-actions.ts).
  */
 export async function POST(
   req: NextRequest,
@@ -58,15 +83,380 @@ export async function POST(
         id: true,
         type: true,
         status: true,
+        classGroupId: true,
         teacherId: true,
         substituteTeacherId: true,
         studentId: true,
         scheduledAt: true,
         durationMinutes: true,
         student: { select: { fullName: true, billingPreference: true } },
+        classGroup: {
+          select: {
+            name: true,
+            honorPerSession: true,
+            courseId: true,
+            period: { select: { startDate: true, endDate: true } },
+            schedules: {
+              where: { isActive: true },
+              select: { dayOfWeek: true, startTime: true, durationMinutes: true },
+            },
+          },
+        },
       },
     });
     if (!session) return apiError("Sesi tidak ditemukan", 404);
+
+    // === CABANG REGULER ===
+    if (session.type === SessionType.regular) {
+      if (!session.classGroupId || !session.classGroup || !session.teacherId) {
+        return apiError("Sesi ini bukan sesi kelas reguler", 422);
+      }
+
+      // Yang berhak menekan tombol adalah guru sesi itu sendiri, guru
+      // pengganti, atau admin — sama seperti privat.
+      const isOwnTeacher =
+        user.id === session.teacherId ||
+        user.id === session.substituteTeacherId;
+      if (!isAdmin(user) && !isOwnTeacher) throw new ForbiddenError();
+
+      const body: unknown = await req.json();
+      const parsed = regularSessionActionSchema.safeParse(body);
+      if (!parsed.success) {
+        return apiError("Data tidak valid", 422, zodFieldErrors(parsed.error));
+      }
+      const { action, notes, makeupAt, lessonId } = parsed.data;
+      const regularAction = action as RegularAction;
+
+      // Task 10: pemilih lesson dikirim bersama aksi apa pun. "" berarti
+      // guru sengaja mengosongkan pilihan; lesson harus benar-benar milik
+      // silabus course kelas ini, bukan sekadar uuid yang valid.
+      let lessonUpdate: string | null | undefined;
+      if (lessonId !== undefined) {
+        if (lessonId === "") {
+          lessonUpdate = null;
+        } else {
+          const lesson = await prisma.lesson.findFirst({
+            where: { id: lessonId, module: { courseId: session.classGroup.courseId } },
+            select: { id: true },
+          });
+          if (!lesson) {
+            return apiError("Data tidak valid", 422, {
+              lessonId: "Lesson tidak ditemukan di silabus course ini",
+            });
+          }
+          lessonUpdate = lesson.id;
+        }
+      }
+
+      // 1. Aksi yang sah untuk reguler berbeda (BR-02.4a: tidak ada cancel_teacher)
+      if (!canApplyRegularAction(session.status, regularAction)) {
+        return apiError(
+          `Sesi berstatus "${SESSION_STATUS_LABEL[session.status]}" tidak bisa ditandai "${REGULAR_ACTION_LABEL[regularAction]}"`,
+          422,
+        );
+      }
+
+      // 2. Menyelesaikan kelas menuntut roster lengkap (spec B1 §5.3)
+      if (regularAction === "complete") {
+        const roster = await activeRoster(session.classGroupId);
+        const marks = await prisma.sessionAttendance.findMany({
+          where: { sessionId: id },
+          select: { studentId: true, status: true },
+        });
+        if (!isRosterComplete(roster.map((r) => r.studentId), marks)) {
+          return apiError(
+            "Tandai kehadiran seluruh murid lebih dulu sebelum menutup kelas ini.",
+            422,
+          );
+        }
+      }
+
+      // 3. Membatalkan kelas WAJIB disertai usulan sesi pengganti (BR-02.4)
+      let makeupScheduledAt: Date | null = null;
+      if (regularAction === "cancel_institution") {
+        if (!makeupAt) {
+          return apiError(
+            "Pembatalan kelas reguler wajib disertai jadwal sesi pengganti.",
+            422,
+          );
+        }
+
+        // Kelas ini sendiri dikecualikan dari pengecekan berbasis TEMPLATE:
+        // template hanya tahu hari-dalam-minggu, jadi tanpa pengecualian itu
+        // make-up tertolak di setiap hari Senin mana pun — termasuk pekan yang
+        // sesinya juga dibatalkan, dan pekan setelah periode berakhir, di mana
+        // tidak ada sesi nyata yang bentrok sama sekali.
+        const conflict = await findTeacherSlotConflict({
+          teacherId: session.teacherId,
+          dayOfWeek: zonedDayOfWeek(makeupAt.date),
+          startTime: makeupAt.startTime,
+          durationMinutes: session.durationMinutes,
+          ignoreClassGroupId: session.classGroupId,
+        });
+        if (conflict) {
+          return apiError(
+            `Guru ini sudah punya ${conflict.label} pada jam yang sama. Pilih jam lain.`,
+            422,
+          );
+        }
+
+        makeupScheduledAt = zonedDateTimeToUtc(makeupAt.date, makeupAt.startTime);
+
+        // Kelas sendiri dijaga di tingkat SESI KONKRET, tapi yang dijaga
+        // adalah TUMPANG TINDIH — bukan cuma jam yang persis sama. Unique
+        // (classGroupId, scheduledAt) hanya menangkap tabrakan eksak; aturan
+        // yang sebenarnya perlu ditegakkan adalah "guru tidak bisa di dua
+        // tempat", dan make-up 16:30 di atas sesi rutin 16:00 melanggarnya
+        // tanpa pernah menyentuh unique itu.
+        const makeupStartMs = makeupScheduledAt.getTime();
+        const makeupEndMs = makeupStartMs + session.durationMinutes * 60_000;
+
+        // Jendela pencarian harus selebar sesi TERPANJANG yang mungkin, kalau
+        // tidak sesi panjang yang mulai jauh sebelum make-up tidak terambil dan
+        // tumpang tindihnya lolos. Angkanya diambil dari validator kelas
+        // (MAX_CLASS_DURATION_MINUTES) supaya tidak bisa menyimpang darinya.
+        // findSessionConflict memakai konstanta yang sama, dengan alasan yang
+        // sama.
+        const searchSpanMs = MAX_CLASS_DURATION_MINUTES * 60_000;
+
+        // Sesi yang sedang dibatalkan IKUT diambil, tidak dikecualikan:
+        // barisnya masih ada di tabel, jadi menaruh make-up tepat di jamnya
+        // sendiri tetap menabrak unique. Yang dikecualikan hanyalah
+        // perhitungan tumpang tindihnya — setelah dibatalkan ia memang tidak
+        // lagi memakai kalender guru.
+        const nearby = await prisma.session.findMany({
+          where: {
+            classGroupId: session.classGroupId,
+            scheduledAt: {
+              gte: new Date(makeupStartMs - searchSpanMs),
+              lte: new Date(makeupEndMs + searchSpanMs),
+            },
+          },
+          select: {
+            id: true,
+            scheduledAt: true,
+            durationMinutes: true,
+            status: true,
+          },
+        });
+
+        const clash = nearby.find((other) => {
+          const otherStart = other.scheduledAt.getTime();
+          // Tabrakan EKSAK dijaga tanpa melihat status: unique tidak mengenal
+          // status, jadi sesi yang sudah dibatalkan pun tetap memblokir insert.
+          if (otherStart === makeupStartMs) return true;
+          if (other.id === id) return false;
+          // Tumpang tindih sebagian hanya dihitung untuk sesi yang benar-benar
+          // memakai kalender guru.
+          if (!OCCUPYING_STATUSES.includes(other.status)) return false;
+          return (
+            otherStart < makeupEndMs &&
+            makeupStartMs < otherStart + other.durationMinutes * 60_000
+          );
+        });
+        if (clash) {
+          return apiError(
+            "Kelas ini sudah punya sesi yang bertabrakan dengan waktu tersebut. Pilih waktu lain untuk sesi pengganti.",
+            422,
+          );
+        }
+
+        // Sesi yang BELUM tergenerate juga harus dihitung: generator hanya
+        // melihat 14 hari ke depan, sedangkan tanggal make-up bebas. Tanpa cek
+        // ini, make-up di luar jendela generator lolos hari ini lalu ditimpa
+        // sesi rutin yang lahir dua pekan kemudian — tumpang tindih yang
+        // muncul sendiri, jauh setelah tombolnya ditekan.
+        //
+        // Sengaja dibatasi TANGGAL make-up itu saja dan hanya di dalam masa
+        // periode, bukan "hari Senin mana pun" seperti versi sebelumnya yang
+        // menolak terlalu banyak.
+        const makeupDayOfWeek = zonedDayOfWeek(makeupAt.date);
+        const periodStartKey = zonedDateKey(session.classGroup.period.startDate);
+        const periodEndKey = zonedDateKey(session.classGroup.period.endDate);
+        const withinPeriod =
+          makeupAt.date >= periodStartKey && makeupAt.date <= periodEndKey;
+
+        if (withinPeriod) {
+          // Slot yang kemunculannya pada TANGGAL ini sudah berwujud baris
+          // konkret harus dilewati: lapis sesi-konkret di atas sudah memberi
+          // putusan atasnya, dan putusannya bisa BERLAWANAN — sesi yang baru
+          // saja dibatalkan (termasuk sesi yang sedang dibatalkan sekarang)
+          // sengaja dibebaskan di sana. Tanpa pengecualian ini, memindahkan
+          // kelas hari ini dari 16:00 ke 16:30 akan ditolak oleh jadwal rutin
+          // yang baru saja dikosongkan sendiri.
+          const materialised = new Set(
+            nearby.map((s) => s.scheduledAt.getTime()),
+          );
+
+          const slotClash = session.classGroup.schedules.find(
+            (slot) =>
+              slot.dayOfWeek === makeupDayOfWeek &&
+              !materialised.has(
+                zonedDateTimeToUtc(makeupAt.date, slot.startTime).getTime(),
+              ) &&
+              timeOverlaps(
+                { startTime: makeupAt.startTime, durationMinutes: session.durationMinutes },
+                slot,
+              ),
+          );
+          if (slotClash) {
+            return apiError(
+              `Kelas ini punya jadwal rutin ${slotClash.startTime} pada hari itu, dan sesi pengganti akan bertabrakan dengannya. Pilih waktu lain.`,
+              422,
+            );
+          }
+        }
+      }
+
+      const nextStatus = regularNextStatus(regularAction);
+      const earnerId = session.substituteTeacherId ?? session.teacherId;
+      const honorPerSession = Number(session.classGroup.honorPerSession);
+      const previousStatus = session.status;
+      const className = session.classGroup.name;
+      const waktu = formatTanggalJamWIB(session.scheduledAt);
+      const waktuPengganti = makeupScheduledAt
+        ? formatTanggalJamWIB(makeupScheduledAt)
+        : null;
+
+      // BR-09: dari ketiga aksi reguler, HANYA cancel_institution yang
+      // memberitahu siapa pun — `start` dan `complete` tidak mengirim
+      // notifikasi apa pun, jadi rosternya tidak perlu diambil sama sekali.
+      // Gurunya sendiri tidak diikutsertakan: dialah yang menekan tombol
+      // pembatalan, dan BR-09 membedakan pembatalan dari reminder H-1.
+      const audience =
+        regularAction === "cancel_institution"
+          ? await getClassAudienceIds(session.classGroupId)
+          : [];
+
+      const runRegularTransaction = () =>
+        prisma.$transaction(async (tx) => {
+          await tx.session.update({
+            where: { id },
+            data: {
+              status: nextStatus,
+              ...(notes !== undefined
+                ? { notes: notes.trim() ? notes.trim() : null }
+                : {}),
+              ...(lessonUpdate !== undefined ? { lessonId: lessonUpdate } : {}),
+            },
+          });
+
+          await writeAudit(tx, {
+            actorId: user.id,
+            entity: "Session",
+            entityId: id,
+            action: "status_change",
+            oldData: { status: previousStatus },
+            newData: { status: nextStatus, action: regularAction },
+          });
+
+          // BR-05.5/BR-05.6: honor guru, TANPA charge murid — biaya periode
+          // sudah menutupinya. createsCharge/createsEarning di
+          // regular-sessions.ts yang menentukan cabangnya; di sini tidak
+          // pernah menulis SessionCharge untuk tipe reguler.
+          const effects = await applyCompletionEffects(tx, {
+            sessionId: id,
+            type: session.type,
+            nextStatus,
+            actorId: user.id,
+            studentId: null,
+            durationMinutes: session.durationMinutes,
+            earnerId,
+            chargeAmount: null,
+            earningAmount: honorPerSession,
+          });
+
+          let makeupSessionId: string | null = null;
+          if (regularAction === "cancel_institution" && makeupScheduledAt) {
+            const makeup = await tx.session.create({
+              data: {
+                type: SessionType.regular,
+                classGroupId: session.classGroupId,
+                teacherId: session.teacherId,
+                scheduledAt: makeupScheduledAt,
+                durationMinutes: session.durationMinutes,
+                isMakeupFor: id,
+              },
+              select: { id: true },
+            });
+            makeupSessionId = makeup.id;
+
+            await writeAudit(tx, {
+              actorId: user.id,
+              entity: "Session",
+              entityId: makeup.id,
+              action: "create_makeup",
+              newData: {
+                isMakeupFor: id,
+                scheduledAt: makeupScheduledAt.toISOString(),
+              },
+            });
+
+            // BR-09: pembatalan kelas wajib diberitahukan, sekaligus kabar
+            // sesi penggantinya.
+            await createNotifications(tx, {
+              userIds: audience,
+              type: "session_cancelled_institution",
+              title: "Kelas diliburkan",
+              body: `Kelas ${className} pada ${waktu} dibatalkan lembaga. Sesi pengganti dijadwalkan ${waktuPengganti}.`,
+              data: { sessionId: id, makeupSessionId },
+            });
+          }
+
+          return { effects, makeupSessionId };
+        }, TX_OPTIONS);
+
+      let result: Awaited<ReturnType<typeof runRegularTransaction>>;
+      try {
+        result = await runRegularTransaction();
+      } catch (error) {
+        // Cek "sesi konkret" di atas menutup kasus normalnya; yang tersisa di
+        // sini adalah LOMBA — dua pembatalan yang menunjuk waktu pengganti
+        // sama dan berjalan bersamaan. Tanpa cabang ini admin hanya melihat
+        // 500 buram, padahal transaksinya sudah rollback sehingga sesi aslinya
+        // tetap `scheduled` — bukan setengah dibatalkan.
+        //
+        // Sengaja dibatasi ke cabang cancel_institution. Hari ini tidak ada
+        // unique lain yang bisa kena di transaksi ini (SessionCharge dan
+        // SessionEarning memakai skipDuplicates; AuditLog dan Notification
+        // tidak punya unique), tapi begitu ada, pesan tentang sesi pengganti
+        // akan menyesatkan pada aksi yang sama sekali tidak membuat make-up.
+        if (
+          regularAction === "cancel_institution" &&
+          typeof error === "object" &&
+          error !== null &&
+          (error as { code?: string }).code === "P2002"
+        ) {
+          return apiError(
+            "Kelas ini sudah punya sesi pada waktu tersebut. Pilih jam lain untuk sesi pengganti.",
+            422,
+          );
+        }
+        throw error;
+      }
+
+      if (regularAction === "cancel_institution") {
+        // BR-09: dikirim setelah transaksi commit — lihat catatan di
+        // sendEventEmail kenapa tidak dari dalam transaksi.
+        await sendEventEmail(audience, {
+          subject: "Kelas diliburkan",
+          title: "Kelas diliburkan",
+          body: `Kelas ${className} pada ${waktu} dibatalkan lembaga. Sesi pengganti dijadwalkan ${waktuPengganti}.`,
+        });
+      }
+
+      return apiOk({
+        id,
+        status: nextStatus,
+        charge: null,
+        earning: result.effects.earningCreated
+          ? { amount: result.effects.earningAmount, created: true }
+          : null,
+        makeupSessionId: result.makeupSessionId,
+      });
+    }
+
+    // === CABANG PRIVAT (tidak berubah dari sebelumnya) ===
     if (
       session.type !== SessionType.private ||
       !session.teacherId ||
@@ -169,61 +559,29 @@ export async function POST(
         newData: { status: nextStatus, action },
       });
 
-      let chargeCreated = false;
-      let earningCreated = false;
+      const effects = await applyCompletionEffects(tx, {
+        sessionId: id,
+        type: session.type,
+        nextStatus,
+        actorId: user.id,
+        studentId,
+        durationMinutes: session.durationMinutes,
+        earnerId,
+        chargeAmount: billable ? amount : null,
+        earningAmount: billable ? earningAmount : 0,
+      });
+
       let invoice: Awaited<ReturnType<typeof issueInvoice>> = null;
 
       if (billable) {
-        const charge = await tx.sessionCharge.createMany({
-          data: [
-            {
-              sessionId: id,
-              studentId,
-              durationMinutes: session.durationMinutes,
-              amount,
-            },
-          ],
-          skipDuplicates: true,
-        });
-        chargeCreated = charge.count > 0;
-
-        if (chargeCreated) {
-          await writeAudit(tx, {
-            actorId: user.id,
-            entity: "SessionCharge",
-            entityId: id,
-            action: "create",
-            newData: {
-              amount,
-              durationMinutes: session.durationMinutes,
-              studentId,
-            },
-          });
-        }
-
-        const earning = await tx.sessionEarning.createMany({
-          data: [{ sessionId: id, teacherId: earnerId, amount: earningAmount }],
-          skipDuplicates: true,
-        });
-        earningCreated = earning.count > 0;
-
-        if (earningCreated) {
-          await writeAudit(tx, {
-            actorId: user.id,
-            entity: "SessionEarning",
-            entityId: id,
-            action: "create",
-            newData: { amount: earningAmount, teacherId: earnerId },
-          });
-        }
-
         // BR-04.3a: murid per_session langsung menerima invoice berisi satu
         // charge. Murid monthly_bundle menunggu cron tanggal 1.
         //
-        // Chargenya dicari ulang alih-alih memakai chargeCreated: bila sesi
-        // ini pernah gagal ditagih karena kesalahan sesaat, jalan kedua di
-        // sini menambalnya. issueInvoice sendiri menyaring charge yang sudah
-        // masuk invoice, jadi pengulangan tidak melahirkan tagihan kedua.
+        // Chargenya dicari ulang alih-alih memakai effects.chargeCreated:
+        // bila sesi ini pernah gagal ditagih karena kesalahan sesaat, jalan
+        // kedua di sini menambalnya. issueInvoice sendiri menyaring charge
+        // yang sudah masuk invoice, jadi pengulangan tidak melahirkan
+        // tagihan kedua.
         if (
           session.student?.billingPreference === BillingPreference.per_session
         ) {
@@ -264,7 +622,11 @@ export async function POST(
         });
       }
 
-      return { chargeCreated, earningCreated, invoice };
+      return {
+        chargeCreated: effects.chargeCreated,
+        earningCreated: effects.earningCreated,
+        invoice,
+      };
     }, TX_OPTIONS);
 
     // BR-09: sesi diliburkan guru dan invoice yang baru terbit wajib lewat

@@ -1,93 +1,21 @@
 import { prisma } from "@/lib/prisma";
-import { APP_TIMEZONE } from "@/lib/datetime";
+import { timeOverlaps } from "@/lib/time-window";
+import { MAX_CLASS_DURATION_MINUTES } from "@/lib/validations/class";
 import { OCCUPYING_STATUSES } from "@/lib/validations/session";
+import { zonedDateKey, zonedDayOfWeek } from "@/lib/zoned-date";
 
 /**
- * Offset zona waktu aplikasi pada satu instan tertentu, dalam milidetik.
- *
- * Dihitung lewat Intl, bukan angka +7 yang dihardcode, supaya tetap benar
- * kalau suatu saat lembaga memakai WITA/WIT atau zona ber-DST.
+ * Helper tanggal murni dipindah ke `@/lib/zoned-date` (lihat berkas itu)
+ * supaya modul murni lain bisa memakainya tanpa ikut menyeret prisma.
+ * Re-export di sini supaya semua pemanggil lama tidak perlu diubah.
  */
-function zoneOffsetMs(instant: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: APP_TIMEZONE,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(instant);
-
-  const get = (type: Intl.DateTimeFormatPartTypes): number =>
-    Number(parts.find((p) => p.type === type)?.value ?? "0");
-
-  // hour bisa terbaca 24 pada tengah malam di sebagian runtime.
-  const asIfUtc = Date.UTC(
-    get("year"),
-    get("month") - 1,
-    get("day"),
-    get("hour") % 24,
-    get("minute"),
-    get("second"),
-  );
-  return asIfUtc - instant.getTime();
-}
-
-/**
- * "2026-09-07" + "16:00" (waktu lokal lembaga) -> instan UTC untuk kolom
- * Session.scheduledAt.
- *
- * Dua langkah: tebak dengan menganggap input sudah UTC, lalu koreksi dengan
- * offset zona pada instan tebakan itu. Untuk zona tanpa DST seperti WIB satu
- * koreksi sudah pasti tepat; langkah kedua menutup kasus tepat di batas
- * pergantian DST bila zonanya diganti kelak.
- */
-export function zonedDateTimeToUtc(dateISO: string, time: string): Date {
-  const naive = new Date(`${dateISO}T${time}:00.000Z`);
-  const firstPass = new Date(naive.getTime() - zoneOffsetMs(naive));
-  return new Date(naive.getTime() - zoneOffsetMs(firstPass));
-}
-
-/** "2026-09-07" untuk sebuah instan, dibaca dalam zona lembaga. */
-export function zonedDateKey(instant: Date): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: APP_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(instant);
-  // en-CA sudah menghasilkan YYYY-MM-DD.
-  return parts;
-}
-
-/** 0 = Minggu .. 6 = Sabtu, dihitung dalam zona lembaga bukan UTC. */
-export function zonedDayOfWeek(dateISO: string): number {
-  // Tengah hari dipakai supaya pergeseran zona tidak pernah menggeser hari.
-  return new Date(`${dateISO}T12:00:00.000Z`).getUTCDay();
-}
-
-/** Daftar tanggal lokal berurutan mulai hari ini, sepanjang `days` hari. */
-export function upcomingDateKeys(from: Date, days: number): string[] {
-  const keys: string[] = [];
-  for (let i = 0; i < days; i += 1) {
-    keys.push(zonedDateKey(new Date(from.getTime() + i * 86_400_000)));
-  }
-  return keys;
-}
-
-/** Tanggal "YYYY-MM-DD" jatuh di dalam rentang inklusif; null = terbuka. */
-export function dateKeyWithinRange(
-  key: string,
-  startDate: Date,
-  endDate: Date | null,
-): boolean {
-  const start = zonedDateKey(startDate);
-  if (key < start) return false;
-  if (!endDate) return true;
-  return key <= zonedDateKey(endDate);
-}
+export {
+  zonedDateKey,
+  zonedDayOfWeek,
+  zonedDateTimeToUtc,
+  upcomingDateKeys,
+  dateKeyWithinRange,
+} from "@/lib/zoned-date";
 
 // --- bentrok sesi konkret ---
 
@@ -118,14 +46,22 @@ export async function findSessionConflict(params: {
   const startMs = params.scheduledAt.getTime();
   const endMs = startMs + params.durationMinutes * 60_000;
 
-  // Ambil kandidat di sekitar slot; durasi maksimum 240 menit sehingga
-  // jendela 4 jam ke belakang sudah pasti menangkap semua yang mungkin.
+  // Jendela ke belakang harus selebar sesi TERPANJANG yang mungkin ada,
+  // bukan selebar sesi yang sedang dibuat. Query ini TIDAK menyaring type dan
+  // mencocokkan lewat teacherId, sedangkan sesi reguler juga punya teacherId
+  // — jadi kandidatnya termasuk kelas reguler, yang boleh sampai
+  // MAX_CLASS_DURATION_MINUTES. Dengan batas 240 menit yang lama, kelas 300
+  // menit yang mulai lebih dari 4 jam sebelum sesi baru tidak pernah
+  // terambil dan tumpang tindihnya lolos diam-diam.
+  //
+  // Cukupnya bisa dihitung: tumpang tindih menuntut cStart > startMs - cDur,
+  // dan cDur tidak pernah melebihi MAX_CLASS_DURATION_MINUTES.
   const candidates = await prisma.session.findMany({
     where: {
       status: { in: OCCUPYING_STATUSES },
       OR: [{ teacherId: params.teacherId }, { studentId: params.studentId }],
       scheduledAt: {
-        gte: new Date(startMs - 240 * 60_000),
+        gte: new Date(startMs - MAX_CLASS_DURATION_MINUTES * 60_000),
         lt: new Date(endMs),
       },
       ...(params.excludeId ? { NOT: { id: params.excludeId } } : {}),
@@ -156,6 +92,132 @@ export async function findSessionConflict(params: {
     student: hit.student,
     side: hit.teacherId === params.teacherId ? "teacher" : "student",
   };
+}
+
+export type TeacherSlotConflict = {
+  kind: "private" | "regular";
+  label: string;
+  /** Hanya terisi untuk `kind: "regular"` — dipakai pemanggil yang perlu tahu
+   *  apakah yang bentrok adalah kelas itu sendiri atau kelas lain. */
+  classGroupId?: string;
+};
+
+export type TeacherSlotQuery = {
+  teacherId: string;
+  dayOfWeek: number;
+  startTime: string;
+  durationMinutes: number;
+  ignoreClassGroupId?: string;
+};
+
+/**
+ * Slot kelas reguler milik guru yang menimpa jendela waktu yang diminta.
+ *
+ * `durationMinutes` BENAR-BENAR dipakai: pembandingnya `timeOverlaps`, sama
+ * seperti `findScheduleConflict` di sisi privat. Versi lama hanya mencocokkan
+ * `startTime` persis, sehingga kelas 60 menit pukul 16:00 lolos begitu saja
+ * terhadap jadwal pukul 16:30 — padahal gurunya jelas tidak bisa di dua tempat.
+ */
+export async function findTeacherRegularSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  // AcademicPeriod.endDate bertipe @db.Date, jadi pembandingnya tanggal lokal
+  // lembaga pada tengah malam UTC — periode yang berakhir HARI INI tetap
+  // terhitung menghalangi.
+  const todayLocal = new Date(`${zonedDateKey(new Date())}T00:00:00.000Z`);
+
+  const candidates = await prisma.classGroupSchedule.findMany({
+    where: {
+      dayOfWeek: input.dayOfWeek,
+      isActive: true,
+      classGroup: {
+        teacherId: input.teacherId,
+        // Yang boleh menghalangi hanyalah kelas yang MASIH menghasilkan sesi.
+        // Gerbangnya disamakan dengan session-generator (shouldSkipClassGroup
+        // + regularCandidateDateKeys): kelas non-"open" dan periode yang sudah
+        // lewat tidak pernah membuat sesi lagi. Tanpa syarat ini blokirnya
+        // PERMANEN — dan belum ada satu pun endpoint yang bisa menutup atau
+        // mengarsipkan class group, jadi tidak ada jalan keluar bagi admin.
+        status: "open",
+        period: { endDate: { gte: todayLocal } },
+        ...(input.ignoreClassGroupId
+          ? { id: { not: input.ignoreClassGroupId } }
+          : {}),
+      },
+    },
+    select: {
+      startTime: true,
+      durationMinutes: true,
+      classGroup: { select: { id: true, name: true } },
+    },
+  });
+
+  const hit = candidates.find((c) => timeOverlaps(input, c));
+  if (!hit) return null;
+
+  return {
+    kind: "regular",
+    label: `kelas ${hit.classGroup.name}`,
+    classGroupId: hit.classGroup.id,
+  };
+}
+
+/** Jadwal privat aktif milik guru yang menimpa jendela waktu yang diminta. */
+export async function findTeacherPrivateSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  const todayLocal = new Date(`${zonedDateKey(new Date())}T00:00:00.000Z`);
+
+  const candidates = await prisma.privateRecurringSchedule.findMany({
+    where: {
+      teacherId: input.teacherId,
+      dayOfWeek: input.dayOfWeek,
+      isActive: true,
+      // Masa berlaku yang sudah habis tidak boleh memblokir apa pun —
+      // penyakit yang sama persis dengan yang disembuhkan di sisi reguler
+      // (periode yang sudah lewat), dan tanpa ini gerbangnya cuma benar di
+      // satu arah. isActive saja tidak cukup: tidak ada proses yang
+      // mematikannya saat effectiveUntil terlewat.
+      //
+      // effectiveFrom SENGAJA tidak disaring: jadwal yang baru mulai bulan
+      // depan tetap komitmen nyata dan memang harus memblokir.
+      OR: [
+        { effectiveUntil: null },
+        { effectiveUntil: { gte: todayLocal } },
+      ],
+    },
+    select: {
+      startTime: true,
+      durationMinutes: true,
+      student: { select: { fullName: true } },
+    },
+  });
+
+  const hit = candidates.find((c) => timeOverlaps(input, c));
+  if (!hit) return null;
+
+  return {
+    kind: "private",
+    label: `jadwal privat dengan ${hit.student.fullName}`,
+  };
+}
+
+/**
+ * Seorang guru tidak boleh terjadwal ganda LINTAS tipe, DUA ARAH (spec §4):
+ * jadwal privat menghalangi slot kelas reguler, dan slot kelas reguler
+ * menghalangi jadwal privat.
+ *
+ * Keterbatasan yang disadari (sama seperti pengecekan privat): pembandingnya
+ * adalah template jadwal aktif, bukan simulasi penuh setiap kemunculan sampai
+ * akhir periode.
+ */
+export async function findTeacherSlotConflict(
+  input: TeacherSlotQuery,
+): Promise<TeacherSlotConflict | null> {
+  return (
+    (await findTeacherPrivateSlotConflict(input)) ??
+    (await findTeacherRegularSlotConflict(input))
+  );
 }
 
 // --- navigasi mingguan ---

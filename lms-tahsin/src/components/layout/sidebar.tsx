@@ -26,6 +26,9 @@ import {
   ShieldCheck,
   UserMinus,
   X,
+  BookOpen,
+  CalendarRange,
+  School,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RoleName } from "@/generated/prisma/enums";
@@ -69,6 +72,24 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/admin/leaves",
     label: "Cuti guru",
     icon: Plane,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/courses",
+    label: "Kurikulum",
+    icon: BookOpen,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/periods",
+    label: "Periode ajar",
+    icon: CalendarRange,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/classes",
+    label: "Kelas reguler",
+    icon: School,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
@@ -117,6 +138,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/teacher/schedule",
     label: "Jadwal",
     icon: CalendarDays,
+    roles: [RoleName.teacher],
+  },
+  {
+    href: "/teacher/classes",
+    label: "Kelas saya",
+    icon: School,
     roles: [RoleName.teacher],
   },
   {

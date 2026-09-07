@@ -1,0 +1,18 @@
+# Artefak editor & agent — milik mesin masing-masing, bukan bagian rilis.
+# Berkas-berkas ini sempat ikut ter-commit di bba5af4 lewat `git add -A`;
+# aturan di sini yang mencegahnya terulang.
+#
+# Sengaja disebut satu per satu, BUKAN `.claude/` seluruhnya: skill yang
+# memang bagian dari repo (lms-tahsin/.claude/skills/prisma-composer) hidup
+# di bawah folder yang sama, dan pola menyeluruh akan membuat skill baru di
+# sana diabaikan git tanpa suara.
+**/.claude/launch.json
+**/.claude/settings.local.json
+**/.claude/skills/find-skills/
+**/.agents/
+skills-lock.json
+
+# Berkas lingkungan tidak boleh pernah masuk riwayat.
+.env
+.env.*
+!.env.example
