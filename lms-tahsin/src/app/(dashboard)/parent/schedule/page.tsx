@@ -71,7 +71,10 @@ export default async function ParentSchedulePage() {
             type: SessionType.regular,
             classGroup: {
               enrollments: {
-                some: { studentId: { in: studentIds }, status: "active" },
+                some: {
+                  studentId: { in: studentIds },
+                  status: { in: ["active", "suspended"] },
+                },
               },
             },
           },
@@ -88,7 +91,10 @@ export default async function ParentSchedulePage() {
           select: {
             name: true,
             enrollments: {
-              where: { studentId: { in: studentIds }, status: "active" },
+              where: {
+                studentId: { in: studentIds },
+                status: { in: ["active", "suspended"] },
+              },
               select: { student: { select: { fullName: true } } },
               take: 1,
             },

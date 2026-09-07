@@ -1,5 +1,6 @@
 import type { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, TX_OPTIONS } from "@/lib/prisma";
+import { addDaysToKey, zonedDateKey } from "@/lib/sessions";
 import {
   apiError,
   apiList,
@@ -82,7 +83,7 @@ export async function POST(
 
     const group = await prisma.classGroup.findUnique({
       where: { id },
-      select: { id: true, audience: true, capacity: true },
+      select: { id: true, audience: true, capacity: true, price: true },
     });
     if (!group) return apiError("Class group tidak ditemukan", 404);
 
@@ -125,8 +126,19 @@ export async function POST(
       }
     }
 
+    const suspendedElsewhere = await prisma.enrollment.findFirst({
+      where: { studentId: parsed.data.studentId, status: "suspended" },
+      select: { id: true },
+    });
+    if (suspendedElsewhere) {
+      return apiError(
+        "Murid ini sedang disuspend karena tunggakan tagihan periode. Selesaikan tagihannya atau cabut suspensinya lebih dulu.",
+        422,
+      );
+    }
+
     const activeCount = await prisma.enrollment.count({
-      where: { classGroupId: id, status: "active" },
+      where: { classGroupId: id, status: { in: ["active", "suspended"] } },
     });
     if (activeCount >= group.capacity) {
       return apiError(
@@ -152,16 +164,41 @@ export async function POST(
 
     // Murid yang pernah drop boleh didaftarkan ulang — barisnya dipakai
     // lagi, bukan dibuat baru, supaya riwayat enrolment tidak bercabang.
-    const enrollment = existingEnrollment
-      ? await prisma.enrollment.update({
-          where: { id: existingEnrollment.id },
-          data: { status: "active", droppedAt: null, enrolledAt: new Date() },
-          select: { id: true },
-        })
-      : await prisma.enrollment.create({
-          data: { classGroupId: id, studentId: parsed.data.studentId },
-          select: { id: true },
+    //
+    // Charge periode (spec B3 §3.2) dibuat sekali per enrollment aktif yang
+    // belum punya charge tersisa — bukan murni "hanya saat create": murid
+    // yang direaktivasi dan charge lamanya sudah lunas/diselesaikan penuh
+    // tetap mendapat satu charge baru untuk periode berjalan.
+    const enrollment = await prisma.$transaction(async (tx) => {
+      const row = existingEnrollment
+        ? await tx.enrollment.update({
+            where: { id: existingEnrollment.id },
+            data: { status: "active", droppedAt: null, enrolledAt: new Date() },
+            select: { id: true },
+          })
+        : await tx.enrollment.create({
+            data: { classGroupId: id, studentId: parsed.data.studentId },
+            select: { id: true },
+          });
+
+      const remainingCharges = await tx.enrollmentCharge.count({
+        where: { enrollmentId: row.id },
+      });
+      if (remainingCharges === 0) {
+        const dueDateKey = addDaysToKey(zonedDateKey(new Date()), 7);
+        await tx.enrollmentCharge.create({
+          data: {
+            enrollmentId: row.id,
+            installmentNo: 1,
+            amount: group.price,
+            dueDate: new Date(`${dueDateKey}T00:00:00.000Z`),
+            status: "pending",
+          },
         });
+      }
+
+      return row;
+    }, TX_OPTIONS);
 
     return apiOk(enrollment, { status: 201 });
   } catch (error) {

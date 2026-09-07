@@ -5,6 +5,7 @@ import {
   daysPastDue,
   formatInvoiceNumber,
   isPastDue,
+  periodeItemDescription,
   sessionItemDescription,
   shouldSuspend,
   statusAfterPayments,
@@ -91,6 +92,23 @@ describe("sessionItemDescription", () => {
     const scheduledAt = new Date("2025-02-12T17:30:00.000Z");
     expect(sessionItemDescription(scheduledAt, 30)).toBe(
       "Sesi Privat 13 Februari 2025, 30 menit",
+    );
+  });
+});
+
+describe("periodeItemDescription", () => {
+  it("menyebut nama kelas tanpa embel-embel cicilan ketika hanya satu charge", () => {
+    expect(periodeItemDescription("Tahsin Dasar A", 1, 1)).toBe(
+      "Biaya periode Tahsin Dasar A",
+    );
+  });
+
+  it("menyertakan nomor cicilan dan totalnya ketika lebih dari satu", () => {
+    expect(periodeItemDescription("Tahsin Dasar A", 1, 3)).toBe(
+      "Biaya periode Tahsin Dasar A — Cicilan 1/3",
+    );
+    expect(periodeItemDescription("Tahsin Dasar A", 3, 3)).toBe(
+      "Biaya periode Tahsin Dasar A — Cicilan 3/3",
     );
   });
 });

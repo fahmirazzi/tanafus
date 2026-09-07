@@ -14,12 +14,16 @@ import { RoleName } from "@/generated/prisma/enums";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * Mencabut suspensi murid (BR-04.6).
+ * Mencabut suspensi murid SECARA MANUAL (BR-04.6).
  *
- * Sengaja tidak otomatis mengikuti pelunasan: aturannya menyebut pencabutan
- * sebagai keputusan admin. Admin boleh mengaktifkan kembali murid yang
- * tagihannya belum sepenuhnya lunas — misalnya sudah ada kesepakatan cicilan —
- * dan itu tercatat di audit atas namanya.
+ * Ini bukan satu-satunya jalur lagi sejak BR-04.6a diimplementasikan (spec
+ * B3 §3.5): pelunasan SELURUH invoice overdue milik murid ini otomatis
+ * mencabut suspensi lewat autoUnsuspendUserIfClear() (dipanggil dari
+ * syncInvoicePayment), TAPI hanya untuk suspensi yang memang berasal dari
+ * sweep tunggakan otomatis. Endpoint manual ini tetap perlu untuk kasus di
+ * luar itu — admin boleh mengaktifkan kembali murid yang tagihannya BELUM
+ * sepenuhnya lunas (mis. sudah ada kesepakatan cicilan di luar sistem), dan
+ * itu tercatat di audit atas namanya.
  */
 export async function DELETE(
   req: NextRequest,

@@ -13,6 +13,7 @@ import {
 } from "@/lib/notifications";
 import { addDaysToKey, zonedDateKey } from "@/lib/sessions";
 import { InvoiceStatus } from "@/generated/prisma/enums";
+import { AUTOMATIC_SUSPENSION_MARKER } from "@/lib/suspension-marker";
 
 /**
  * Cron harian keterlambatan bayar (roadmap item 24, PRD F-5e).
@@ -47,6 +48,7 @@ export type OverdueSummary = {
   today: string;
   markedOverdue: number;
   suspended: number;
+  suspendedEnrollments: number;
   failures: number;
 };
 
@@ -61,6 +63,7 @@ export async function runOverdueSweep(
     today: todayKey,
     markedOverdue: 0,
     suspended: 0,
+    suspendedEnrollments: 0,
     failures: 0,
   };
 
@@ -156,6 +159,7 @@ export async function runOverdueSweep(
       status: InvoiceStatus.overdue,
       dueDate: { lte: dateOnly(suspensionCutoff) },
       student: { suspendedAt: null },
+      items: { none: { enrollmentChargeId: { not: null } } },
     },
     select: {
       id: true,
@@ -175,7 +179,7 @@ export async function runOverdueSweep(
     seen.add(invoice.studentId);
 
     const overdueDays = daysPastDue(zonedDateKey(invoice.dueDate), todayKey);
-    const reason = `Tagihan ${invoice.invoiceNumber} terlambat ${overdueDays} hari`;
+    const reason = `${AUTOMATIC_SUSPENSION_MARKER}Tagihan ${invoice.invoiceNumber} terlambat ${overdueDays} hari`;
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -214,6 +218,84 @@ export async function runOverdueSweep(
           error: String(error),
         }),
       );
+    }
+  }
+
+  // --- 3. BR-04.6b: reguler — invoice periode overdue > 14 hari -> suspensi
+  // ENROLLMENT (bukan User) — kohort tidak bisa dihentikan per keluarga.
+  const stalePeriode = await prisma.invoice.findMany({
+    where: {
+      status: InvoiceStatus.overdue,
+      dueDate: { lte: dateOnly(suspensionCutoff) },
+      items: { some: { enrollmentChargeId: { not: null } } },
+    },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      dueDate: true,
+      items: {
+        where: { enrollmentChargeId: { not: null } },
+        select: { enrollmentCharge: { select: { enrollmentId: true } } },
+      },
+    },
+    orderBy: { dueDate: "asc" },
+  });
+
+  const seenEnrollments = new Set<string>();
+
+  for (const invoice of stalePeriode) {
+    for (const item of invoice.items) {
+      const enrollmentId = item.enrollmentCharge?.enrollmentId;
+      if (!enrollmentId || seenEnrollments.has(enrollmentId)) continue;
+      seenEnrollments.add(enrollmentId);
+
+      const overdueDays = daysPastDue(zonedDateKey(invoice.dueDate), todayKey);
+      const reason = `${AUTOMATIC_SUSPENSION_MARKER}Tagihan ${invoice.invoiceNumber} terlambat ${overdueDays} hari`;
+
+      try {
+        await prisma.$transaction(async (tx) => {
+          const updated = await tx.enrollment.updateMany({
+            where: { id: enrollmentId, NOT: { status: "suspended" } },
+            data: { status: "suspended" },
+          });
+          if (updated.count === 0) return;
+
+          await writeAudit(tx, {
+            actorId,
+            entity: "Enrollment",
+            entityId: enrollmentId,
+            action: "suspend",
+            newData: { reason, invoiceId: invoice.id },
+          });
+
+          const enrollment = await tx.enrollment.findUnique({
+            where: { id: enrollmentId },
+            select: { studentId: true },
+          });
+          if (!enrollment) return;
+
+          const audience = await getStudentAudienceIds(enrollment.studentId, tx);
+          await createNotifications(tx, {
+            userIds: audience,
+            type: "student_suspended",
+            title: "Pendaftaran kelas berikutnya dihentikan sementara",
+            body: `${reason}. Sesi kelas yang sedang berjalan tetap lanjut, tapi pendaftaran periode berikutnya belum bisa dilakukan sampai tagihan lunas.`,
+            data: { invoiceId: invoice.id },
+          });
+
+          summary.suspendedEnrollments += 1;
+        }, TX_OPTIONS);
+      } catch (error) {
+        summary.failures += 1;
+        console.error(
+          JSON.stringify({
+            level: "error",
+            msg: "suspend_enrollment_failed",
+            enrollmentId,
+            error: String(error),
+          }),
+        );
+      }
     }
   }
 

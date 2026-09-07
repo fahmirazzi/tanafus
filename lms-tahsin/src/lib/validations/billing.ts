@@ -79,3 +79,23 @@ export const invoiceListQuerySchema = z.object({
   status: z.enum(InvoiceStatus).optional(),
   studentId: z.uuid("Murid tidak valid").optional(),
 });
+
+/**
+ * Konversi charge periode jadi cicilan (BR-04.8). Admin menentukan jumlah
+ * dan tanggal tiap cicilan sendiri — bukan pembagian rata otomatis (spec B3
+ * §3.2) — jadi tidak ada logika pembulatan sisa di sini; validasi jumlah
+ * total terhadap charge asli terjadi di route, bukan di schema, karena
+ * butuh data dari database.
+ */
+export const installmentConversionSchema = z.object({
+  installments: z
+    .array(
+      z.object({
+        amount: z.coerce.number().positive("Nominal harus lebih dari nol"),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal tidak valid"),
+      }),
+    )
+    .min(1, "Minimal satu cicilan"),
+});
+
+export type InstallmentConversionInput = z.infer<typeof installmentConversionSchema>;

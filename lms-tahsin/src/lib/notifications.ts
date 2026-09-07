@@ -78,7 +78,7 @@ export async function getClassAudienceIds(
   client: Client = prisma,
 ): Promise<string[]> {
   const enrollments = await client.enrollment.findMany({
-    where: { classGroupId, status: "active" },
+    where: { classGroupId, status: { in: ["active", "suspended"] } },
     select: { studentId: true },
   });
   const studentIds = enrollments.map((e) => e.studentId);

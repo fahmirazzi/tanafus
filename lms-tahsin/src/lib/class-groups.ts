@@ -41,11 +41,53 @@ export async function activeRoster(
   classGroupId: string,
 ): Promise<Array<{ studentId: string; fullName: string }>> {
   const rows = await prisma.enrollment.findMany({
-    where: { classGroupId, status: "active" },
+    where: { classGroupId, status: { in: ["active", "suspended"] } },
     select: { studentId: true, student: { select: { fullName: true } } },
     orderBy: { student: { fullName: "asc" } },
   });
   return rows.map((r) => ({ studentId: r.studentId, fullName: r.student.fullName }));
+}
+
+export type EnrollmentChargeRow = {
+  id: string;
+  enrollmentId: string;
+  studentName: string;
+  installmentNo: number;
+  amount: number;
+  dueDate: Date;
+  status: string;
+  invoiced: boolean;
+};
+
+/** Charge periode seluruh enrollment di sebuah class group, untuk layar
+ * admin "Tagihan periode" (spec B3 §3.3). */
+export async function enrollmentChargesForClassGroup(
+  classGroupId: string,
+): Promise<EnrollmentChargeRow[]> {
+  const rows = await prisma.enrollmentCharge.findMany({
+    where: { enrollment: { classGroupId } },
+    select: {
+      id: true,
+      enrollmentId: true,
+      installmentNo: true,
+      amount: true,
+      dueDate: true,
+      status: true,
+      invoiceItems: { select: { id: true } },
+      enrollment: { select: { student: { select: { fullName: true } } } },
+    },
+    orderBy: [{ enrollmentId: "asc" }, { installmentNo: "asc" }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    enrollmentId: r.enrollmentId,
+    studentName: r.enrollment.student.fullName,
+    installmentNo: r.installmentNo,
+    amount: Number(r.amount),
+    dueDate: r.dueDate,
+    status: r.status,
+    invoiced: r.invoiceItems.length > 0,
+  }));
 }
 
 export type StaleSession = {
