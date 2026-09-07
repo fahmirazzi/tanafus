@@ -50,7 +50,7 @@ export async function POST(
         invoiceNumber: true,
         status: true,
         studentId: true,
-        items: { select: { id: true, sessionChargeId: true } },
+        items: { select: { id: true, sessionChargeId: true, enrollmentChargeId: true } },
       },
     });
     if (!invoice) return apiError("Tagihan tidak ditemukan", 404);
@@ -65,8 +65,11 @@ export async function POST(
       );
     }
 
-    const chargeIds = invoice.items
+    const sessionChargeIds = invoice.items
       .map((item) => item.sessionChargeId)
+      .filter((value): value is string => value !== null);
+    const enrollmentChargeIds = invoice.items
+      .map((item) => item.enrollmentChargeId)
       .filter((value): value is string => value !== null);
 
     await prisma.$transaction(async (tx) => {
@@ -85,9 +88,15 @@ export async function POST(
       // masih ada.
       await tx.invoiceItem.deleteMany({ where: { invoiceId: invoice.id } });
 
-      if (chargeIds.length > 0) {
+      if (sessionChargeIds.length > 0) {
         await tx.sessionCharge.updateMany({
-          where: { id: { in: chargeIds } },
+          where: { id: { in: sessionChargeIds } },
+          data: { status: ChargeStatus.pending },
+        });
+      }
+      if (enrollmentChargeIds.length > 0) {
+        await tx.enrollmentCharge.updateMany({
+          where: { id: { in: enrollmentChargeIds } },
           data: { status: ChargeStatus.pending },
         });
       }
@@ -98,7 +107,11 @@ export async function POST(
         entityId: invoice.id,
         action: "void",
         oldData: { status: invoice.status },
-        newData: { status: InvoiceStatus.void, reason, chargesReopened: chargeIds.length },
+        newData: {
+          status: InvoiceStatus.void,
+          reason,
+          chargesReopened: sessionChargeIds.length + enrollmentChargeIds.length,
+        },
       });
 
       const audience = await getStudentAudienceIds(invoice.studentId, tx);
@@ -114,7 +127,7 @@ export async function POST(
     return apiOk({
       id: invoice.id,
       status: InvoiceStatus.void,
-      chargesReopened: chargeIds.length,
+      chargesReopened: sessionChargeIds.length + enrollmentChargeIds.length,
     });
   } catch (error) {
     return handleApiError(error);
