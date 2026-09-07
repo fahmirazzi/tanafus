@@ -64,6 +64,9 @@ export const classGroupSchema = z.object({
   capacity: z.coerce.number().int().min(1).max(100).default(15),
   price: z.coerce.number().min(0, "Harga tidak boleh negatif"),
   honorPerSession: z.coerce.number().min(0, "Honor tidak boleh negatif"),
+  status: z.enum(["open", "closed", "archived"], {
+    error: "Status tidak valid",
+  }).optional(),
 });
 
 export const classScheduleSchema = z.object({
@@ -97,4 +100,19 @@ export const attendanceSchema = z.object({
       }),
     )
     .min(1, "Tidak ada kehadiran yang dikirim"),
+});
+
+export const placementSchema = z.object({
+  studentId: z.string().uuid("Murid tidak valid"),
+  quizScore: z.coerce.number().min(0).max(100).optional(),
+  interviewNotes: z.union([z.string().trim().max(2000), z.literal("")]).optional(),
+  audioUrl: z.union([z.string().trim().url("URL tidak valid"), z.literal("")]).optional(),
+  verdict: z.string().trim().min(2, "Verdict minimal 2 karakter").max(200),
+  recommendedCourseId: z.string().uuid("Course tidak valid").optional(),
+});
+
+export const placementPatchSchema = placementSchema.partial().extend({
+  status: z.enum(["draft", "reviewed", "placed"], {
+    error: "Status tidak valid",
+  }).optional(),
 });

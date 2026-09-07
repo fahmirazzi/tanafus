@@ -68,10 +68,9 @@ export async function GET(
 /**
  * Daftarkan murid ke roster. Admin-only.
  *
- * Kapasitas SENGAJA tidak ditegakkan di B1 (spec §2.2) — admin mengetik murid
- * secara manual, dan penuh-otomatis (enrolment mandiri sampai kapasitas
- * penuh) baru masuk di B3. Ini keputusan sadar, bukan kelalaian, jadi di
- * sinilah pengecekan kapasitas SEHARUSNYA berada kalau nanti ditegakkan.
+ * Kapasitas ditegakkan lewat hitungan enrollment `active` (spec B2 §3.3) —
+ * berlaku sama untuk pendaftaran baru maupun reaktivasi murid yang pernah
+ * `dropped`, karena keduanya sama-sama menghasilkan baris `active` baru.
  */
 export async function POST(
   req: NextRequest,
@@ -83,7 +82,7 @@ export async function POST(
 
     const group = await prisma.classGroup.findUnique({
       where: { id },
-      select: { id: true, audience: true },
+      select: { id: true, audience: true, capacity: true },
     });
     if (!group) return apiError("Class group tidak ditemukan", 404);
 
@@ -126,8 +125,15 @@ export async function POST(
       }
     }
 
-    // Kapasitas SENGAJA tidak ditegakkan di sini (lihat komentar di atas
-    // POST) — spec §2.2.
+    const activeCount = await prisma.enrollment.count({
+      where: { classGroupId: id, status: "active" },
+    });
+    if (activeCount >= group.capacity) {
+      return apiError(
+        "Kelas ini sudah penuh. Naikkan kapasitas kelas kalau memang disengaja.",
+        422,
+      );
+    }
 
     const existingEnrollment = await prisma.enrollment.findUnique({
       where: {

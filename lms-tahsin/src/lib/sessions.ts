@@ -136,8 +136,9 @@ export async function findTeacherRegularSlotConflict(
         // Gerbangnya disamakan dengan session-generator (shouldSkipClassGroup
         // + regularCandidateDateKeys): kelas non-"open" dan periode yang sudah
         // lewat tidak pernah membuat sesi lagi. Tanpa syarat ini blokirnya
-        // PERMANEN — dan belum ada satu pun endpoint yang bisa menutup atau
-        // mengarsipkan class group, jadi tidak ada jalan keluar bagi admin.
+        // PERMANEN — admin sekarang punya jalan keluar: PATCH class group
+        // status ke closed/archived (spec B2 §3.1) membebaskan jam guru ini
+        // untuk kelas atau jadwal privat lain.
         status: "open",
         period: { endDate: { gte: todayLocal } },
         ...(input.ignoreClassGroupId

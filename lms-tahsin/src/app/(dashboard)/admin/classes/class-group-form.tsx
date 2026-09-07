@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,26 +11,51 @@ import { FieldError, FormAlert, FormNotice } from "@/components/form-feedback";
 const selectClass =
   "h-10 w-full border-b border-b-input bg-transparent text-sm text-plum-700 outline-none focus-visible:border-b-ring";
 
-/** Form buat class group baru (spec B1 §2). */
+export type ClassGroupFormInitial = {
+  name: string;
+  courseId: string;
+  periodId: string;
+  teacherId: string;
+  audience: string;
+  capacity: number;
+  price: number;
+  honorPerSession: number;
+  status: string;
+};
+
+/**
+ * Form class group. Satu komponen untuk create (spec B1 §2) dan edit (spec
+ * B2 §3.1) — mode "edit" menambah select status dan mem-PATCH, bukan
+ * mem-POST, alih-alih menduplikasi seluruh form untuk satu field.
+ */
 export function ClassGroupForm({
   courses,
   periods,
   teachers,
+  mode = "create",
+  classGroupId,
+  initial,
 }: {
   courses: { id: string; name: string }[];
   periods: { id: string; name: string }[];
   teachers: { id: string; fullName: string }[];
+  mode?: "create" | "edit";
+  classGroupId?: string;
+  initial?: ClassGroupFormInitial;
 }) {
   const router = useRouter();
 
-  const [name, setName] = useState("");
-  const [courseId, setCourseId] = useState(courses[0]?.id ?? "");
-  const [periodId, setPeriodId] = useState(periods[0]?.id ?? "");
-  const [teacherId, setTeacherId] = useState(teachers[0]?.id ?? "");
-  const [audience, setAudience] = useState("children");
-  const [capacity, setCapacity] = useState("15");
-  const [price, setPrice] = useState("");
-  const [honorPerSession, setHonorPerSession] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [courseId, setCourseId] = useState(initial?.courseId ?? courses[0]?.id ?? "");
+  const [periodId, setPeriodId] = useState(initial?.periodId ?? periods[0]?.id ?? "");
+  const [teacherId, setTeacherId] = useState(initial?.teacherId ?? teachers[0]?.id ?? "");
+  const [audience, setAudience] = useState(initial?.audience ?? "children");
+  const [capacity, setCapacity] = useState(String(initial?.capacity ?? 15));
+  const [price, setPrice] = useState(initial ? String(initial.price) : "");
+  const [honorPerSession, setHonorPerSession] = useState(
+    initial ? String(initial.honorPerSession) : "",
+  );
+  const [status, setStatus] = useState(initial?.status ?? "open");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -47,21 +72,27 @@ export function ClassGroupForm({
       return;
     }
 
+    const body: Record<string, unknown> = {
+      name,
+      courseId,
+      periodId,
+      teacherId,
+      audience,
+      capacity,
+      price,
+      honorPerSession,
+    };
+    if (mode === "edit") body.status = status;
+
     setBusy(true);
-    const response = await fetch("/api/class-groups", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        courseId,
-        periodId,
-        teacherId,
-        audience,
-        capacity,
-        price,
-        honorPerSession,
-      }),
-    });
+    const response = await fetch(
+      mode === "edit" ? `/api/class-groups/${classGroupId}` : "/api/class-groups",
+      {
+        method: mode === "edit" ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
     const payload: unknown = await response.json();
     setBusy(false);
 
@@ -74,14 +105,20 @@ export function ClassGroupForm({
       const firstDetail = body.details
         ? Object.values(body.details)[0]
         : undefined;
-      setFormError(body.error ?? firstDetail ?? "Gagal membuat kelas.");
+      setFormError(
+        body.error ?? firstDetail ?? "Gagal menyimpan kelas.",
+      );
       return;
     }
 
-    setName("");
-    setPrice("");
-    setHonorPerSession("");
-    setNotice(`Kelas "${name}" dibuat.`);
+    if (mode === "create") {
+      setName("");
+      setPrice("");
+      setHonorPerSession("");
+      setNotice(`Kelas "${name}" dibuat.`);
+    } else {
+      setNotice("Perubahan disimpan.");
+    }
     router.refresh();
   }
 
@@ -175,6 +212,23 @@ export function ClassGroupForm({
           <FieldError id="class-audience-error" message={errors.audience} />
         </div>
 
+        {mode === "edit" ? (
+          <div className="space-y-2">
+            <Label htmlFor="class-status">Status</Label>
+            <select
+              id="class-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={selectClass}
+            >
+              <option value="open">Buka</option>
+              <option value="closed">Tutup</option>
+              <option value="archived">Arsipkan</option>
+            </select>
+            <FieldError id="class-status-error" message={errors.status} />
+          </div>
+        ) : null}
+
         <div className="space-y-2">
           <Label htmlFor="class-capacity">Kapasitas</Label>
           <Input
@@ -221,8 +275,16 @@ export function ClassGroupForm({
       <FormNotice message={notice} />
 
       <Button type="submit" disabled={busy}>
-        <Plus data-icon="inline-start" />
-        {busy ? "Menyimpan..." : "Buat kelas"}
+        {mode === "edit" ? (
+          <Save data-icon="inline-start" />
+        ) : (
+          <Plus data-icon="inline-start" />
+        )}
+        {busy
+          ? "Menyimpan..."
+          : mode === "edit"
+            ? "Simpan perubahan"
+            : "Buat kelas"}
       </Button>
     </form>
   );

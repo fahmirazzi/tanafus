@@ -4,13 +4,14 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
-import { outstandingMakeupObligations } from "@/lib/class-groups";
+import { outstandingMakeupObligations, staleScheduledSessions } from "@/lib/class-groups";
 import { formatRupiah } from "@/lib/currency";
 import { formatTanggalJamWIB, formatTanggalWIB } from "@/lib/datetime";
 import { RoleName } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClassGroupForm } from "../class-group-form";
 import { ScheduleManager, type ScheduleRow } from "./schedule-manager";
 import { RosterManager, type RosterRow } from "./roster-manager";
 
@@ -44,9 +45,9 @@ export default async function AdminClassDetailPage({
       capacity: true,
       price: true,
       honorPerSession: true,
-      course: { select: { name: true } },
-      period: { select: { name: true, startDate: true, endDate: true } },
-      teacher: { select: { fullName: true } },
+      course: { select: { id: true, name: true } },
+      period: { select: { id: true, name: true, startDate: true, endDate: true } },
+      teacher: { select: { id: true, fullName: true } },
       schedules: {
         where: { isActive: true },
         select: {
@@ -74,10 +75,26 @@ export default async function AdminClassDetailPage({
   });
   if (!group) notFound();
 
-  const [obligations, students] = await Promise.all([
+  const [obligations, staleSessions, students, courses, periods, teachers] = await Promise.all([
     outstandingMakeupObligations(id),
+    staleScheduledSessions(id),
     prisma.user.findMany({
       where: { roles: { some: { role: { name: RoleName.student } } } },
+      select: { id: true, fullName: true },
+      orderBy: { fullName: "asc" },
+    }),
+    prisma.course.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.academicPeriod.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { startDate: "desc" },
+    }),
+    prisma.user.findMany({
+      where: { roles: { some: { role: { name: RoleName.teacher } } } },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     }),
@@ -170,6 +187,32 @@ export default async function AdminClassDetailPage({
         </Card>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Edit kelas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ClassGroupForm
+            mode="edit"
+            classGroupId={id}
+            courses={courses}
+            periods={periods}
+            teachers={teachers}
+            initial={{
+              name: group.name,
+              courseId: group.course.id,
+              periodId: group.period.id,
+              teacherId: group.teacher.id,
+              audience: group.audience,
+              capacity: group.capacity,
+              price: Number(group.price),
+              honorPerSession: Number(group.honorPerSession),
+              status: group.status,
+            }}
+          />
+        </CardContent>
+      </Card>
+
       {obligations.length > 0 ? (
         <Card className="border-destructive/40">
           <CardHeader>
@@ -188,6 +231,33 @@ export default async function AdminClassDetailPage({
                 <li key={o.id} className="text-sm text-plum-700">
                   Sesi {formatTanggalJamWIB(o.scheduledAt)} dibatalkan, belum
                   ada penggantinya.
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {staleSessions.length > 0 ? (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-base text-destructive">
+              Sesi belum ditutup ({staleSessions.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-plum-700">
+              Jam sesi berikut sudah lewat tapi statusnya masih
+              &quot;terjadwal&quot; — gurunya kemungkinan lupa menekan
+              &quot;Selesai&quot;. Tidak ada penutupan otomatis; tindak
+              lanjuti manual lewat kehadiran/status sesi guru yang
+              bersangkutan.
+            </p>
+            <ul className="space-y-1">
+              {staleSessions.map((s) => (
+                <li key={s.id} className="text-sm text-plum-700">
+                  Sesi {formatTanggalJamWIB(s.scheduledAt)} ({s.durationMinutes}{" "}
+                  menit) masih &quot;terjadwal&quot;.
                 </li>
               ))}
             </ul>

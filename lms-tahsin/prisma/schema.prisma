@@ -208,6 +208,8 @@ model User {
   leaveCoveragesAsSubstitute  TeacherLeaveCoverage[]     @relation("LeaveCoverageSubstitute")
   deletionRequests            AccountDeletionRequest[]
   classGroupsAsTeacher        ClassGroup[]               @relation("ClassGroupTeacher")
+  placementsAsStudent         PlacementRecord[]          @relation("PlacementStudent")
+  placementsReviewed          PlacementRecord[]          @relation("PlacementReviewer")
 }
 
 model Role {
@@ -269,8 +271,30 @@ model Course {
   /// Belum dipakai sampai B4; ditaruh sekarang karena memang milik course.
   attendanceThresholdPct Decimal @default(75) @db.Decimal(5, 2)
 
-  classGroups ClassGroup[]
-  modules     Module[]
+  classGroups      ClassGroup[]
+  modules          Module[]
+  placementRecords PlacementRecord[]
+}
+
+model PlacementRecord {
+  id                  String    @id @default(uuid())
+  studentId           String
+  quizScore           Decimal?  @db.Decimal(5, 2)
+  interviewNotes      String?
+  audioUrl            String?
+  verdict             String
+  recommendedCourseId String?
+  status              String    @default("draft") // draft | reviewed | placed
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  student           User    @relation("PlacementStudent", fields: [studentId], references: [id])
+  recommendedCourse Course? @relation(fields: [recommendedCourseId], references: [id])
+  reviewer          User?   @relation("PlacementReviewer", fields: [reviewedBy], references: [id])
+
+  @@index([studentId])
 }
 
 model AcademicPeriod {

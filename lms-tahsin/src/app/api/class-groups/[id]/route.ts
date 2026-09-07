@@ -121,7 +121,7 @@ export async function PATCH(
 
     const existing = await prisma.classGroup.findUnique({
       where: { id },
-      select: { id: true, teacherId: true },
+      select: { id: true, teacherId: true, periodId: true },
     });
     if (!existing) return apiError("Class group tidak ditemukan", 404);
 
@@ -173,7 +173,13 @@ export async function PATCH(
       }
     }
 
-    // Bentrok dicek saat GURU berubah maupun saat PERIODE berubah.
+    // Bentrok dicek saat GURU berubah maupun saat PERIODE berubah — BENAR-BENAR
+    // berubah dari yang tersimpan, bukan cuma "field ini ada di body". Form edit
+    // admin selalu mengirim kedelapan field pada setiap simpan, jadi menggerbangi
+    // dari kehadiran field saja membuat cek ini terpicu ulang pada SETIAP edit
+    // (ganti nama, harga, dll) walau guru dan periodenya tidak disentuh — dan begitu
+    // kelas ditutup lalu ada kelas lain yang sah menempati jam bekas gurunya, admin
+    // jadi tidak bisa lagi menyimpan perubahan apa pun ke kelas yang sudah ditutup.
     //
     // Guru: slot jadwal aktif kelas ini tidak ikut berubah saat gurunya
     // diganti, jadi bentroknya harus dicek di sini juga — bukan cuma di
@@ -185,7 +191,10 @@ export async function PATCH(
     // periode baru. Tanpa cek di sini, dua kelas milik guru yang sama bisa
     // berakhir di jam yang sama — permanen dan senyap, karena generator lalu
     // membuat sesi rutin dari keduanya.
-    if (teacherId || periodId) {
+    const teacherChanged = teacherId !== undefined && teacherId !== existing.teacherId;
+    const periodChanged = periodId !== undefined && periodId !== existing.periodId;
+
+    if (teacherChanged || periodChanged) {
       const effectiveTeacherId = teacherId ?? existing.teacherId;
       const activeSchedules = await prisma.classGroupSchedule.findMany({
         where: { classGroupId: id, isActive: true },
@@ -241,7 +250,7 @@ export async function PATCH(
     await prisma.$transaction(async (tx) => {
       await tx.classGroup.update({ where: { id }, data: parsed.data });
 
-      if (teacherId) {
+      if (teacherChanged) {
         // Spec §4: pemindahan guru adalah operasi manual yang didukung saat
         // guru cuti panjang — maka sesi yang SUDAH tergenerate harus ikut
         // pindah, kalau tidak guru baru kena 403 di kelasnya sendiri
