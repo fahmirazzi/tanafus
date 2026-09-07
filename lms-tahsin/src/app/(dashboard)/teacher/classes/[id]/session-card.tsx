@@ -178,8 +178,36 @@ export function SessionCard({
     // Hanya kirim sel yang benar-benar diisi: penilaian tidak wajib, dan sel
     // kosong berarti "belum dinilai", bukan nol.
     const payload = buildGradePayload(scores);
+    // Snapshot server ditangkap ke variabel lokal SEBELUM fetch: selagi
+    // request berjalan, useEffect([grades]) (dipicu router.refresh() dari
+    // aksi lain di kartu yang sama) bisa memutasi previousGrades.current.
+    // Hasil simpan ini harus dihitung relatif terhadap keadaan server saat
+    // `payload` dibentuk, bukan terhadap nilai ref apa pun yang kebetulan
+    // ada saat respons tiba.
+    const serverSnapshot = previousGrades.current;
+
     if (payload.length === 0) {
-      setGradeError("Belum ada nilai yang diisi");
+      // Semua sel kosong, jadi tidak ada yang bisa dikirim (penghapusan nilai
+      // di luar lingkup B4). Layar tetap WAJIB disinkronkan ulang: kalau guru
+      // mengosongkan satu-satunya sel yang terisi, server masih menyimpan
+      // nilainya, dan tanpa baris ini sel itu tampak kosong sampai halaman
+      // di-reload penuh — persis kelas bug yang jalur sukses di bawah tutup.
+      setScores((local) =>
+        mergeServerGrades({
+          serverBefore: serverSnapshot,
+          local,
+          serverAfter: serverSnapshot,
+        }),
+      );
+      // Pesannya dibedakan: kalau server memang masih menyimpan nilai, "belum
+      // ada nilai yang diisi" menyesatkan — sel barusan dipulihkan di depan
+      // mata guru, jadi yang perlu dijelaskan adalah KENAPA pengosongannya
+      // tidak tersimpan.
+      setGradeError(
+        Object.keys(serverSnapshot).length > 0
+          ? "Nilai tidak bisa dikosongkan lewat layar ini. Sel yang dikosongkan dikembalikan ke nilai yang tersimpan."
+          : "Belum ada nilai yang diisi",
+      );
       setSavingGrades(false);
       return;
     }
@@ -205,12 +233,27 @@ export function SessionCard({
       // yang dikosongkan (tidak ikut di payload) otomatis jatuh kembali ke
       // nilai server dari snapshot; sel yang baru disimpan menampilkan nilai
       // barunya.
-      const nextScores = scoresAfterSave({
-        serverSnapshot: previousGrades.current,
+      const nextServer = scoresAfterSave({
+        serverSnapshot,
         savedPayload: payload,
       });
-      setScores(nextScores);
-      previousGrades.current = nextScores;
+      // WAJIB updater fungsional yang dikomposisikan dengan mergeServerGrades,
+      // BUKAN setScores(nextServer) dengan nilai biasa: input tabel sengaja
+      // tidak di-disabled selagi menyimpan, jadi guru bisa mengetik di sel
+      // lain SETELAH `payload` ditangkap. Nilai biasa akan mengganti SELURUH
+      // state dan menghapus ketikan itu diam-diam — tanpa galat, tanpa tanda
+      // apa pun. mergeServerGrades sudah membedakan kedua kasus: sel lokal
+      // yang BERISI dan berbeda dari snapshot saat kirim dianggap sedang
+      // disunting (dipertahankan), sedangkan sel kosong selalu jatuh ke nilai
+      // server sehingga perbaikan bug aslinya tetap berlaku.
+      setScores((local) =>
+        mergeServerGrades({
+          serverBefore: serverSnapshot,
+          local,
+          serverAfter: nextServer,
+        }),
+      );
+      previousGrades.current = nextServer;
       // Tetap dipanggil untuk kasus lain (mis. guru/admin lain menyunting
       // data yang sama di tempat lain) — useEffect([grades]) di atas masih
       // berguna KALAU refresh ini kebetulan membawa referensi `grades` baru

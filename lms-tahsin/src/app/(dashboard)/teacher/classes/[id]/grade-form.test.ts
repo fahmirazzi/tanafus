@@ -130,3 +130,81 @@ describe("scoresAfterSave", () => {
     expect(next["s9:9"]).toBeUndefined();
   });
 });
+
+/**
+ * Komposisi yang dipakai jalur simpan di session-card.tsx.
+ *
+ * Diuji sebagai komposisi (bukan cuma tiap fungsi sendiri-sendiri) karena bug
+ * yang ditutup di sini lahir dari CARA ketiganya dirangkai, bukan dari salah
+ * satu fungsi: jalur sukses sempat memakai `setScores(nilai biasa)` yang
+ * mengganti SELURUH state, sehingga sel yang diketik guru selagi request
+ * berjalan hilang diam-diam. Rangkaian di bawah meniru urutan di
+ * `saveGrades()`; kalau urutan di komponen berubah, uji ini tidak akan ikut
+ * gagal — itu batasnya, dan sengaja tidak ditutup dengan uji DOM baru.
+ */
+function nextScoresOnSave({
+  serverSnapshot,
+  savedPayload,
+  local,
+}: {
+  serverSnapshot: Record<string, string>;
+  savedPayload: ReturnType<typeof buildGradePayload>;
+  local: Record<string, string>;
+}): Record<string, string> {
+  const serverAfter = scoresAfterSave({ serverSnapshot, savedPayload });
+  return mergeServerGrades({ serverBefore: serverSnapshot, local, serverAfter });
+}
+
+describe("komposisi jalur simpan (scoresAfterSave + mergeServerGrades)", () => {
+  it("sel yang diketik guru SELAGI request berjalan tidak hilang", () => {
+    // Input tabel tidak di-disabled saat menyimpan: `payload` ditangkap
+    // sebelum fetch, lalu guru mengetik "8" di sel lain sebelum respons tiba.
+    // Ketikan itu tidak boleh tertimpa oleh hasil simpan.
+    const serverSnapshot = { "s1:1": "77", "s2:1": "5" };
+    const next = nextScoresOnSave({
+      serverSnapshot,
+      savedPayload: buildGradePayload({ "s1:1": "9", "s2:1": "5" }),
+      local: { "s1:1": "9", "s2:1": "8" },
+    });
+
+    expect(next["s2:1"]).toBe("8");
+    expect(next["s1:1"]).toBe("9");
+  });
+
+  it("sel yang dikosongkan tetap kembali ke nilai server (bug asli tetap tertutup)", () => {
+    // Regresi yang paling mahal: perbaikan untuk ketikan-selagi-menyimpan
+    // tidak boleh membuka lagi bug tiga ronde sebelumnya.
+    const serverSnapshot = { "s1:1": "77", "s2:1": "5" };
+    const next = nextScoresOnSave({
+      serverSnapshot,
+      savedPayload: buildGradePayload({ "s1:1": "", "s2:1": "5" }),
+      local: { "s1:1": "", "s2:1": "5" },
+    });
+
+    expect(next["s1:1"]).toBe("77");
+  });
+
+  it("sel yang ikut terkirim dan tidak disentuh lagi menampilkan nilai yang baru disimpan", () => {
+    const serverSnapshot = { "s1:1": "77" };
+    const next = nextScoresOnSave({
+      serverSnapshot,
+      savedPayload: buildGradePayload({ "s1:1": "9" }),
+      local: { "s1:1": "9" },
+    });
+
+    expect(next["s1:1"]).toBe("9");
+  });
+
+  it("cabang payload kosong memulihkan sel dari snapshot server tanpa request", () => {
+    // Guru mengosongkan SATU-SATUNYA sel yang terisi: tidak ada yang dikirim,
+    // tapi layar tetap harus menunjukkan apa yang benar-benar tersimpan.
+    const serverSnapshot = { "s1:1": "77" };
+    const next = mergeServerGrades({
+      serverBefore: serverSnapshot,
+      local: { "s1:1": "" },
+      serverAfter: serverSnapshot,
+    });
+
+    expect(next["s1:1"]).toBe("77");
+  });
+});
