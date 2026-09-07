@@ -306,6 +306,7 @@ model AcademicPeriod {
   enrollmentCloseAt DateTime?
   isActive          Boolean      @default(true)
   classGroups       ClassGroup[]
+  invoices          Invoice[]
 }
 
 model ClassGroup {
@@ -344,8 +345,23 @@ model Enrollment {
   updatedAt    DateTime   @updatedAt
   student      User       @relation(fields: [studentId], references: [id])
   classGroup   ClassGroup @relation(fields: [classGroupId], references: [id])
+  charges      EnrollmentCharge[]
 
   @@unique([studentId, classGroupId])
+}
+
+model EnrollmentCharge {
+  id            String       @id @default(uuid())
+  enrollmentId  String
+  installmentNo Int
+  amount        Decimal      @db.Decimal(12, 2)
+  dueDate       DateTime     @db.Date
+  status        ChargeStatus @default(pending)
+  createdAt     DateTime     @default(now())
+  enrollment    Enrollment    @relation(fields: [enrollmentId], references: [id])
+  invoiceItems  InvoiceItem[]
+
+  @@unique([enrollmentId, installmentNo])
 }
 
 /// Pengelompokan silabus di bawah sebuah course.
@@ -735,7 +751,7 @@ model Invoice {
   id            String        @id @default(uuid())
   invoiceNumber String        @unique
   studentId     String
-  periodId      String? // untuk reguler (fase 2)
+  periodId      String?
   issueDate     DateTime      @db.Date
   dueDate       DateTime      @db.Date
   subtotal      Decimal       @db.Decimal(12, 2)
@@ -751,6 +767,7 @@ model Invoice {
 
   createdAt DateTime      @default(now())
   student   User          @relation(fields: [studentId], references: [id])
+  period    AcademicPeriod? @relation(fields: [periodId], references: [id])
   items     InvoiceItem[]
   payments  Payment[]
 
@@ -761,13 +778,15 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id              String         @id @default(uuid())
-  invoiceId       String
-  description     String
-  sessionChargeId String?        @unique
-  amount          Decimal        @db.Decimal(12, 2)
-  invoice         Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  sessionCharge   SessionCharge? @relation(fields: [sessionChargeId], references: [id])
+  id                 String            @id @default(uuid())
+  invoiceId          String
+  description        String
+  sessionChargeId    String?           @unique
+  enrollmentChargeId String?           @unique
+  amount             Decimal           @db.Decimal(12, 2)
+  invoice            Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sessionCharge      SessionCharge?    @relation(fields: [sessionChargeId], references: [id])
+  enrollmentCharge   EnrollmentCharge? @relation(fields: [enrollmentChargeId], references: [id])
 
   @@index([invoiceId])
 }
