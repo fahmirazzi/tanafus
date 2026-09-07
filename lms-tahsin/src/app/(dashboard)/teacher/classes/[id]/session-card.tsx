@@ -151,8 +151,17 @@ export function SessionCard({
    */
   useEffect(() => {
     const serverAfter = gradesToScores(grades);
+    // Tangkap nilai ref ke variabel lokal SEBELUM memanggil setScores.
+    // Closure JavaScript dalam updater membaca `.current` saat updater
+    // benar-benar dieksekusi (bukan saat setScores dipanggil), dan jika
+    // baris berikutnya sudah memutasi ref, updater akan melihat nilai baru.
+    // React umumnya menjalankan updater sinkron, tapi mode dev dan efek
+    // tertunda lainnya dapat membuat updater dieksekusi SETELAH mutasi ref,
+    // menyebabkan serverBefore === serverAfter dan kehilangan deteksi sel
+    // yang benar-benar berubah di server.
+    const serverBefore = previousGrades.current;
     setScores((local) =>
-      mergeServerGrades({ serverBefore: previousGrades.current, local, serverAfter }),
+      mergeServerGrades({ serverBefore, local, serverAfter }),
     );
     previousGrades.current = serverAfter;
     // Sengaja hanya bergantung pada `grades`: `scores` diakses lewat updater
