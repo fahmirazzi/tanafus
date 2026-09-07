@@ -11,6 +11,7 @@ import { RoleName } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClassGroupForm } from "../class-group-form";
 import { ScheduleManager, type ScheduleRow } from "./schedule-manager";
 import { RosterManager, type RosterRow } from "./roster-manager";
 
@@ -44,9 +45,9 @@ export default async function AdminClassDetailPage({
       capacity: true,
       price: true,
       honorPerSession: true,
-      course: { select: { name: true } },
-      period: { select: { name: true, startDate: true, endDate: true } },
-      teacher: { select: { fullName: true } },
+      course: { select: { id: true, name: true } },
+      period: { select: { id: true, name: true, startDate: true, endDate: true } },
+      teacher: { select: { id: true, fullName: true } },
       schedules: {
         where: { isActive: true },
         select: {
@@ -74,10 +75,25 @@ export default async function AdminClassDetailPage({
   });
   if (!group) notFound();
 
-  const [obligations, students] = await Promise.all([
+  const [obligations, students, courses, periods, teachers] = await Promise.all([
     outstandingMakeupObligations(id),
     prisma.user.findMany({
       where: { roles: { some: { role: { name: RoleName.student } } } },
+      select: { id: true, fullName: true },
+      orderBy: { fullName: "asc" },
+    }),
+    prisma.course.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.academicPeriod.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true },
+      orderBy: { startDate: "desc" },
+    }),
+    prisma.user.findMany({
+      where: { roles: { some: { role: { name: RoleName.teacher } } } },
       select: { id: true, fullName: true },
       orderBy: { fullName: "asc" },
     }),
@@ -169,6 +185,32 @@ export default async function AdminClassDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Edit kelas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ClassGroupForm
+            mode="edit"
+            classGroupId={id}
+            courses={courses}
+            periods={periods}
+            teachers={teachers}
+            initial={{
+              name: group.name,
+              courseId: group.course.id,
+              periodId: group.period.id,
+              teacherId: group.teacher.id,
+              audience: group.audience,
+              capacity: group.capacity,
+              price: Number(group.price),
+              honorPerSession: Number(group.honorPerSession),
+              status: group.status,
+            }}
+          />
+        </CardContent>
+      </Card>
 
       {obligations.length > 0 ? (
         <Card className="border-destructive/40">
