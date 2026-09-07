@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { SessionStatus, SessionType } from "@/generated/prisma/enums";
+import { isSessionStale } from "@/lib/session-staleness";
 
 /**
  * Query pendukung kelas reguler. Menyentuh database, jadi tidak diuji unit —
@@ -45,4 +46,28 @@ export async function activeRoster(
     orderBy: { student: { fullName: "asc" } },
   });
   return rows.map((r) => ({ studentId: r.studentId, fullName: r.student.fullName }));
+}
+
+export type StaleSession = {
+  id: string;
+  scheduledAt: Date;
+  durationMinutes: number;
+};
+
+/**
+ * Sesi kelas reguler yang masih `scheduled` padahal jam selesainya sudah
+ * lewat. Murni sinyal untuk admin (spec B2 §3.2) — TIDAK ADA transisi
+ * status otomatis; menutup paksa bisa mengarang kehadiran/honor untuk sesi
+ * yang gurunya belum sempat menandai.
+ */
+export async function staleScheduledSessions(
+  classGroupId: string,
+): Promise<StaleSession[]> {
+  const sessions = await prisma.session.findMany({
+    where: { classGroupId, status: SessionStatus.scheduled },
+    select: { id: true, scheduledAt: true, durationMinutes: true },
+    orderBy: { scheduledAt: "asc" },
+  });
+  const now = new Date();
+  return sessions.filter((s) => isSessionStale(s, now));
 }

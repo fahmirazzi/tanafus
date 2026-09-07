@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
-import { outstandingMakeupObligations } from "@/lib/class-groups";
+import { outstandingMakeupObligations, staleScheduledSessions } from "@/lib/class-groups";
 import { formatRupiah } from "@/lib/currency";
 import { formatTanggalJamWIB, formatTanggalWIB } from "@/lib/datetime";
 import { RoleName } from "@/generated/prisma/enums";
@@ -75,8 +75,9 @@ export default async function AdminClassDetailPage({
   });
   if (!group) notFound();
 
-  const [obligations, students, courses, periods, teachers] = await Promise.all([
+  const [obligations, staleSessions, students, courses, periods, teachers] = await Promise.all([
     outstandingMakeupObligations(id),
+    staleScheduledSessions(id),
     prisma.user.findMany({
       where: { roles: { some: { role: { name: RoleName.student } } } },
       select: { id: true, fullName: true },
@@ -230,6 +231,33 @@ export default async function AdminClassDetailPage({
                 <li key={o.id} className="text-sm text-plum-700">
                   Sesi {formatTanggalJamWIB(o.scheduledAt)} dibatalkan, belum
                   ada penggantinya.
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {staleSessions.length > 0 ? (
+        <Card className="border-destructive/40">
+          <CardHeader>
+            <CardTitle className="text-base text-destructive">
+              Sesi belum ditutup ({staleSessions.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-plum-700">
+              Jam sesi berikut sudah lewat tapi statusnya masih
+              &quot;terjadwal&quot; — gurunya kemungkinan lupa menekan
+              &quot;Selesai&quot;. Tidak ada penutupan otomatis; tindak
+              lanjuti manual lewat kehadiran/status sesi guru yang
+              bersangkutan.
+            </p>
+            <ul className="space-y-1">
+              {staleSessions.map((s) => (
+                <li key={s.id} className="text-sm text-plum-700">
+                  Sesi {formatTanggalJamWIB(s.scheduledAt)} ({s.durationMinutes}{" "}
+                  menit) masih &quot;terjadwal&quot;.
                 </li>
               ))}
             </ul>
