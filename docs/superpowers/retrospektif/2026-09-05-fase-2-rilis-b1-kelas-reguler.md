@@ -88,6 +88,8 @@ Diurutkan dari yang paling menghalangi.
 | 8 | `PATCH` periode menuntut body penuh sedangkan `PATCH` course menerima parsial (`periodSchema` memakai `.refine()` sehingga `.partial()` tidak bisa). | Ketidakkonsistenan ergonomi API; Zod menolak dengan 422 yang berisik, tidak ada yang bisa terhapus diam-diam. |
 | 9 | `@@index([classGroupId, scheduledAt])` kini redundan — unique dengan kolom yang sama sudah membuat indeksnya sendiri. | Dibereskan saat migrasi B2 berikutnya, bukan dengan migrasi khusus. |
 | 10 | `no_info` didefinisikan berbeda di klien (= belum ditandai) dan server (= sudah ada baris). | Arahnya aman (klien lebih ketat) dan praktis tak terjangkau: `attendanceSchema` tidak memuat `no_info`, dan route PUT satu-satunya penulis `SessionAttendance`. |
+| 11 | `ClassGroupSchedule.durationMinutes` **tanpa CHECK constraint** di database. | Bukti keamanan jendela pencarian bentrok bergantung pada durasi ≤ 300, dan yang menegakkannya hanya Zod di satu route. Baris hasil seed atau perbaikan manual di DB bisa melanggarnya diam-diam. |
+| 12 | `timeOverlaps` **tidak mengenal slot yang melewati tengah malam**. | Slot 22:00 berdurasi 300 menit berakhir pukul 03:00 keesokan hari, tapi diwakili menit ke-1620; cek slot mingguan hanya melihat hari make-up itu sendiri. Lapis sesi konkret tetap menangkapnya, jadi baru relevan kalau kelas malam panjang benar-benar dipakai. |
 
 ---
 
