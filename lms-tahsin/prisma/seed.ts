@@ -47,8 +47,9 @@ async function main(): Promise<void> {
   }
 
   // ------------------------------------------------------- rubrik penilaian
-  // PRD F-4a: empat kriteria skala 0-100 yang dinilai guru tiap sesi privat.
-  // Di-upsert lewat name (unik) supaya seed boleh dijalankan berulang.
+  // PRD F-4a: empat kriteria skala 0-100, kini dipakai sesi privat DAN kelas
+  // reguler (spec B4 §4.3). Di-upsert lewat name (unik) supaya seed boleh
+  // dijalankan berulang.
   const criteria = [
     {
       name: "Makharijul Huruf",
@@ -64,8 +65,11 @@ async function main(): Promise<void> {
   for (const criterion of criteria) {
     await prisma.gradeCriterion.upsert({
       where: { name: criterion.name },
-      update: { description: criterion.description },
-      create: { ...criterion, maxScore: 100, scope: "private" },
+      // scope IKUT di update, bukan hanya create. Tanpa ini, seed berikutnya
+      // mengembalikan kriteria ke 'private' pada basis data yang baru dan
+      // kelas reguler kehilangan seluruh rubriknya tanpa suara.
+      update: { description: criterion.description, scope: "both" },
+      create: { ...criterion, maxScore: 100, scope: "both" },
     });
   }
 

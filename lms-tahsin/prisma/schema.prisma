@@ -151,6 +151,11 @@ enum ClassAudience {
   adult
 }
 
+enum ReportCardStatus {
+  draft
+  published
+}
+
 // ===================== USER & ROLE =====================
 
 model User {
@@ -210,6 +215,7 @@ model User {
   classGroupsAsTeacher        ClassGroup[]               @relation("ClassGroupTeacher")
   placementsAsStudent         PlacementRecord[]          @relation("PlacementStudent")
   placementsReviewed          PlacementRecord[]          @relation("PlacementReviewer")
+  publishedReportCards        ReportCard[]               @relation("ReportCardPublisher")
 }
 
 model Role {
@@ -334,34 +340,88 @@ model ClassGroup {
 }
 
 model Enrollment {
-  id           String     @id @default(uuid())
+  id           String             @id @default(uuid())
   studentId    String
   classGroupId String
-  status       String     @default("active") // active | completed | dropped | suspended
-  finalGrade   Decimal?   @db.Decimal(5, 2)
-  enrolledAt   DateTime   @default(now())
+  status       String             @default("active") // active | completed | dropped | suspended
+  finalGrade   Decimal?           @db.Decimal(5, 2)
+  enrolledAt   DateTime           @default(now())
   droppedAt    DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  student      User       @relation(fields: [studentId], references: [id])
-  classGroup   ClassGroup @relation(fields: [classGroupId], references: [id])
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  student      User               @relation(fields: [studentId], references: [id])
+  classGroup   ClassGroup         @relation(fields: [classGroupId], references: [id])
   charges      EnrollmentCharge[]
+  reportCard   ReportCard?
 
   @@unique([studentId, classGroupId])
 }
 
 model EnrollmentCharge {
-  id            String       @id @default(uuid())
+  id            String        @id @default(uuid())
   enrollmentId  String
   installmentNo Int
-  amount        Decimal      @db.Decimal(12, 2)
-  dueDate       DateTime     @db.Date
-  status        ChargeStatus @default(pending)
-  createdAt     DateTime     @default(now())
+  amount        Decimal       @db.Decimal(12, 2)
+  dueDate       DateTime      @db.Date
+  status        ChargeStatus  @default(pending)
+  createdAt     DateTime      @default(now())
   enrollment    Enrollment    @relation(fields: [enrollmentId], references: [id])
   invoiceItems  InvoiceItem[]
 
   @@unique([enrollmentId, installmentNo])
+}
+
+/// Rapor periode satu enrollment (spec B4 §4.1). Draft mengikuti data di
+/// belakangnya; begitu published, seluruh angkanya beku.
+model ReportCard {
+  id           String @id @default(uuid())
+  enrollmentId String @unique
+
+  /// Null bila penyebutnya nol. 0% berarti murid tidak pernah hadir —
+  /// tuduhan yang berbeda dari "belum ada sesi apa pun".
+  attendancePct    Decimal? @db.Decimal(5, 2)
+  sessionsHeld     Int
+  sessionsAttended Int
+
+  finalGradeComputed Decimal? @db.Decimal(5, 2)
+  finalGradeOverride Decimal? @db.Decimal(5, 2)
+  overrideReason     String?
+
+  /// DI-SNAPSHOT, bukan dibaca ulang dari Course: mengubah ambang tahun
+  /// depan tidak boleh mengubah verdict rapor yang sudah terbit.
+  attendanceThresholdPct Decimal  @db.Decimal(5, 2)
+  /// Null bila attendancePct null — kelayakan belum bisa dinyatakan.
+  eligibleForNextLevel   Boolean?
+
+  teacherNote String?
+
+  status      ReportCardStatus @default(draft)
+  publishedAt DateTime?
+  publishedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollment Enrollment        @relation(fields: [enrollmentId], references: [id])
+  publisher  User?             @relation("ReportCardPublisher", fields: [publishedBy], references: [id])
+  scores     ReportCardScore[]
+
+  @@index([status])
+}
+
+/// Snapshot rata-rata satu kriteria pada satu rapor.
+model ReportCardScore {
+  id             String  @id @default(uuid())
+  reportCardId   String
+  criterionId    Int
+  averageScore   Decimal @db.Decimal(5, 2)
+  /// Berapa nilai yang menyumbang rata-rata ini.
+  sessionsScored Int
+
+  reportCard ReportCard     @relation(fields: [reportCardId], references: [id], onDelete: Cascade)
+  criterion  GradeCriterion @relation(fields: [criterionId], references: [id])
+
+  @@unique([reportCardId, criterionId])
 }
 
 /// Pengelompokan silabus di bawah sebuah course.
@@ -488,14 +548,15 @@ model SessionAttendance {
 }
 
 model GradeCriterion {
-  id          Int            @id @default(autoincrement())
+  id               Int               @id @default(autoincrement())
   /// Unik supaya seed rubrik bisa dijalankan berulang tanpa menggandakan
   /// kriteria: Makharijul Huruf, Sifatul Huruf, Tajwid, Kelancaran.
-  name        String         @unique
-  description String?
-  maxScore    Decimal        @default(100) @db.Decimal(5, 2)
-  scope       String         @default("both") // regular | private | both
-  grades      SessionGrade[]
+  name             String            @unique
+  description      String?
+  maxScore         Decimal           @default(100) @db.Decimal(5, 2)
+  scope            String            @default("both") // regular | private | both
+  grades           SessionGrade[]
+  reportCardScores ReportCardScore[]
 }
 
 model SessionGrade {
@@ -765,8 +826,8 @@ model Invoice {
   voidReason String?
   voidedAt   DateTime?
 
-  createdAt DateTime      @default(now())
-  student   User          @relation(fields: [studentId], references: [id])
+  createdAt DateTime        @default(now())
+  student   User            @relation(fields: [studentId], references: [id])
   period    AcademicPeriod? @relation(fields: [periodId], references: [id])
   items     InvoiceItem[]
   payments  Payment[]
