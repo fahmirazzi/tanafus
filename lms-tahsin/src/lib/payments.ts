@@ -5,6 +5,10 @@ import {
   createNotifications,
   getStudentAudienceIds,
 } from "@/lib/notifications";
+import {
+  autoUnsuspendEnrollmentIfClear,
+  autoUnsuspendUserIfClear,
+} from "@/lib/suspension";
 import { InvoiceStatus, PaymentStatus } from "@/generated/prisma/enums";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -81,6 +85,23 @@ export async function syncInvoicePayment(
       body: `Pembayaran ${formatRupiah(verifiedTotal)} sudah kami terima. Terima kasih.`,
       data: { invoiceId: invoice.id },
     });
+
+    // BR-04.6a/BR-04.6b: pelunasan otomatis mencabut suspensi terkait.
+    const periodeItem = await tx.invoiceItem.findFirst({
+      where: { invoiceId: invoice.id, enrollmentChargeId: { not: null } },
+      select: { enrollmentCharge: { select: { enrollmentId: true } } },
+    });
+    if (periodeItem?.enrollmentCharge) {
+      await autoUnsuspendEnrollmentIfClear(tx, {
+        enrollmentId: periodeItem.enrollmentCharge.enrollmentId,
+        actorId: params.actorId,
+      });
+    } else {
+      await autoUnsuspendUserIfClear(tx, {
+        studentId: invoice.studentId,
+        actorId: params.actorId,
+      });
+    }
   }
 
   return { status: nextStatus, changed: true };
