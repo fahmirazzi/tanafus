@@ -101,3 +101,18 @@ export const attendanceSchema = z.object({
     )
     .min(1, "Tidak ada kehadiran yang dikirim"),
 });
+
+export const placementSchema = z.object({
+  studentId: z.string().uuid("Murid tidak valid"),
+  quizScore: z.coerce.number().min(0).max(100).optional(),
+  interviewNotes: z.union([z.string().trim().max(2000), z.literal("")]).optional(),
+  audioUrl: z.union([z.string().trim().url("URL tidak valid"), z.literal("")]).optional(),
+  verdict: z.string().trim().min(2, "Verdict minimal 2 karakter").max(200),
+  recommendedCourseId: z.string().uuid("Course tidak valid").optional(),
+});
+
+export const placementPatchSchema = placementSchema.partial().extend({
+  status: z.enum(["draft", "reviewed", "placed"], {
+    error: "Status tidak valid",
+  }).optional(),
+});
