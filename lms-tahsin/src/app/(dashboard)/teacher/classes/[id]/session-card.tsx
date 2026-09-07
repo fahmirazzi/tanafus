@@ -29,6 +29,8 @@ import { SessionStatus } from "@/generated/prisma/enums";
 
 export type LessonOption = { id: string; label: string };
 export type RosterStudent = { studentId: string; fullName: string };
+export type CriterionOption = { id: number; name: string; maxScore: number };
+export type GradeRow = { studentId: string; criterionId: number; score: number };
 
 export type SessionRow = {
   id: string;
@@ -73,10 +75,14 @@ export function SessionCard({
   session,
   roster,
   lessons,
+  criteria,
+  grades,
 }: {
   session: SessionRow;
   roster: RosterStudent[];
   lessons: LessonOption[];
+  criteria: CriterionOption[];
+  grades: GradeRow[];
 }) {
   const router = useRouter();
 
@@ -104,6 +110,51 @@ export function SessionCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Penilaian hanya berlaku untuk sesi yang sudah selesai — endpoint (Task 3)
+  // menolak sesi lain, jadi menampilkan formnya di status lain hanya
+  // memancing galat 422.
+  const canGrade =
+    session.status === SessionStatus.completed ||
+    session.status === SessionStatus.completed_absent;
+
+  const [scores, setScores] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    for (const g of grades) initial[`${g.studentId}:${g.criterionId}`] = String(g.score);
+    return initial;
+  });
+  const [gradeError, setGradeError] = useState<string | null>(null);
+  const [savingGrades, setSavingGrades] = useState(false);
+
+  async function saveGrades() {
+    setSavingGrades(true);
+    setGradeError(null);
+    // Hanya kirim sel yang benar-benar diisi: penilaian tidak wajib, dan sel
+    // kosong berarti "belum dinilai", bukan nol.
+    const payload = Object.entries(scores)
+      .filter(([, value]) => value.trim() !== "")
+      .map(([key, value]) => {
+        const [studentId, criterionId] = key.split(":");
+        return { studentId, criterionId: Number(criterionId), score: Number(value) };
+      });
+    if (payload.length === 0) {
+      setGradeError("Belum ada nilai yang diisi");
+      setSavingGrades(false);
+      return;
+    }
+    const res = await fetch(`/api/sessions/${session.id}/grades`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grades: payload }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setGradeError(json?.details?.grades ?? json?.error ?? "Gagal menyimpan nilai");
+    } else {
+      router.refresh();
+    }
+    setSavingGrades(false);
+  }
 
   const available = REGULAR_ACTIONS.filter((action) =>
     canApplyRegularAction(session.status, action),
@@ -349,6 +400,80 @@ export function SessionCard({
             {busy ? "Menyimpan..." : "Simpan kehadiran"}
           </Button>
         </div>
+
+        {canGrade ? (
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-sm font-semibold text-plum-800">Penilaian</p>
+            {roster.length === 0 || criteria.length === 0 ? (
+              <p className="text-sm text-plum-500">
+                {roster.length === 0
+                  ? "Belum ada murid aktif di roster."
+                  : "Belum ada kriteria penilaian untuk kelas reguler."}
+              </p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-plum-500">
+                        <th className="py-2 pr-2 font-medium">Murid</th>
+                        {criteria.map((c) => (
+                          <th key={c.id} className="py-2 px-2 font-medium">
+                            {c.name}
+                            <span className="block text-xs font-normal text-plum-400">
+                              maks {c.maxScore}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roster.map((r) => (
+                        <tr key={r.studentId} className="border-b border-border">
+                          <td className="py-2 pr-2 whitespace-nowrap text-plum-700">
+                            {r.fullName}
+                          </td>
+                          {criteria.map((c) => {
+                            const key = `${r.studentId}:${c.id}`;
+                            return (
+                              <td key={c.id} className="py-2 px-2">
+                                <Input
+                                  aria-label={`${c.name} untuk ${r.fullName}`}
+                                  type="number"
+                                  min={0}
+                                  max={c.maxScore}
+                                  inputMode="decimal"
+                                  value={scores[key] ?? ""}
+                                  onChange={(e) =>
+                                    setScores((prev) => ({
+                                      ...prev,
+                                      [key]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-20"
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <FormAlert message={gradeError} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={savingGrades}
+                  onClick={() => void saveGrades()}
+                >
+                  {savingGrades ? "Menyimpan..." : "Simpan nilai"}
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
 
         {available.length === 0 ? (
           <p className="rounded-md bg-cream-100 px-3 py-2 text-sm text-plum-700">
