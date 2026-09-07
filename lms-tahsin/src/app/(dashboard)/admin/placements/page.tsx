@@ -72,6 +72,8 @@ export default async function AdminPlacementsPage({
     id: r.id,
     studentName: r.student.fullName,
     quizScore: r.quizScore ? Number(r.quizScore) : null,
+    interviewNotes: r.interviewNotes,
+    audioUrl: r.audioUrl,
     verdict: r.verdict,
     recommendedCourseName: r.recommendedCourse?.name ?? null,
     status: r.status,

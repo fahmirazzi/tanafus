@@ -129,9 +129,10 @@ export async function POST(
       where: { classGroupId: id, status: "active" },
     });
     if (activeCount >= group.capacity) {
-      return apiError("Data tidak valid", 422, {
-        studentId: "Kelas ini sudah penuh",
-      });
+      return apiError(
+        "Kelas ini sudah penuh. Naikkan kapasitas kelas kalau memang disengaja.",
+        422,
+      );
     }
 
     const existingEnrollment = await prisma.enrollment.findUnique({

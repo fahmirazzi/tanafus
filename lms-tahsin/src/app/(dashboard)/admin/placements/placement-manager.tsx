@@ -24,6 +24,8 @@ export type PlacementRow = {
   id: string;
   studentName: string;
   quizScore: number | null;
+  interviewNotes: string | null;
+  audioUrl: string | null;
   verdict: string;
   recommendedCourseName: string | null;
   status: string;
@@ -109,6 +111,7 @@ export function PlacementManager({
   }
 
   async function handleStatusChange(id: string, status: string): Promise<void> {
+    setFormError(null);
     setBusy(true);
     const response = await fetch(`/api/placements/${id}`, {
       method: "PATCH",
@@ -116,7 +119,21 @@ export function PlacementManager({
       body: JSON.stringify({ status }),
     });
     setBusy(false);
-    if (response.ok) router.refresh();
+
+    if (!response.ok) {
+      const payload: unknown = await response.json();
+      const body = payload as {
+        error?: string;
+        details?: Record<string, string>;
+      };
+      const firstDetail = body.details
+        ? Object.values(body.details)[0]
+        : undefined;
+      setFormError(body.error ?? firstDetail ?? "Gagal mengubah status placement.");
+      return;
+    }
+
+    router.refresh();
   }
 
   return (
@@ -129,6 +146,9 @@ export function PlacementManager({
             <TableRow>
               <TableHead>Murid</TableHead>
               <TableHead>Verdict</TableHead>
+              <TableHead>Skor</TableHead>
+              <TableHead>Catatan</TableHead>
+              <TableHead>Audio</TableHead>
               <TableHead>Rekomendasi</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Dicatat</TableHead>
@@ -142,6 +162,27 @@ export function PlacementManager({
                   {p.studentName}
                 </TableCell>
                 <TableCell>{p.verdict}</TableCell>
+                <TableCell>{p.quizScore ?? "—"}</TableCell>
+                <TableCell
+                  className="max-w-[16rem] truncate"
+                  title={p.interviewNotes ?? undefined}
+                >
+                  {p.interviewNotes ?? "—"}
+                </TableCell>
+                <TableCell>
+                  {p.audioUrl ? (
+                    <a
+                      href={p.audioUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-plum-700 underline underline-offset-2 hover:text-plum-800"
+                    >
+                      Dengar
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
                 <TableCell>{p.recommendedCourseName ?? "—"}</TableCell>
                 <TableCell>
                   <Badge variant={p.status === "placed" ? "default" : "secondary"}>
