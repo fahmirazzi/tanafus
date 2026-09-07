@@ -64,6 +64,9 @@ export const classGroupSchema = z.object({
   capacity: z.coerce.number().int().min(1).max(100).default(15),
   price: z.coerce.number().min(0, "Harga tidak boleh negatif"),
   honorPerSession: z.coerce.number().min(0, "Honor tidak boleh negatif"),
+  status: z.enum(["open", "closed", "archived"], {
+    error: "Status tidak valid",
+  }).optional(),
 });
 
 export const classScheduleSchema = z.object({
