@@ -65,6 +65,23 @@ export function sessionItemDescription(
 }
 
 /**
+ * "Biaya periode Tahsin Dasar A" (satu charge) atau "Biaya periode Tahsin
+ * Dasar A — Cicilan 1/3" (dipecah cicilan) — rincian per baris invoice
+ * periode, analog sessionItemDescription tapi untuk kelas reguler (spec B3
+ * §3.3).
+ */
+export function periodeItemDescription(
+  classGroupName: string,
+  installmentNo: number,
+  totalInstallments: number,
+): string {
+  const base = `Biaya periode ${classGroupName}`;
+  return totalInstallments > 1
+    ? `${base} — Cicilan ${installmentNo}/${totalInstallments}`
+    : base;
+}
+
+/**
  * Status yang masih menunggu uang masuk. `draft` tidak termasuk: invoice
  * privat lahir langsung `issued`, dan draft dicadangkan untuk kelas reguler
  * di fase berikutnya.
