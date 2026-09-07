@@ -370,7 +370,7 @@ yang sudah dipakai jalur guru lain.
 
 | Peran | Layar | Isi |
 |---|---|---|
-| Guru | `/teacher/sessions/[id]` | Bagian "Penilaian kohort": tabel roster kali kriteria, satu tombol simpan |
+| Guru | `/teacher/classes/[id]` | Bagian "Penilaian kohort" di dalam `session-card.tsx`, bersebelahan dengan penanda kehadiran. **Bukan** `/teacher/sessions/[id]` — halaman itu milik sesi privat; sesi kelas reguler dikelola dari detail kelas. |
 | Guru | `/teacher/classes/[id]/report-cards` | Daftar murid, angka terhitung, form narasi + timpaan nilai |
 | Admin | `/admin/classes/[id]/report-cards` | Status gerbang, tombol susun & terbitkan, unduhan CSV |
 | Admin | `/admin/classes/[id]` | Panel sesi basi + tautan aksinya |
