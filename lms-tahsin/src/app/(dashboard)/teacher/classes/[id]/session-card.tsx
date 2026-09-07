@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import {
 } from "@/lib/regular-sessions";
 import { SESSION_STATUS_LABEL } from "@/lib/validations/session";
 import { SessionStatus } from "@/generated/prisma/enums";
+import { buildGradePayload, mergeServerGrades } from "./grade-form";
 
 export type LessonOption = { id: string; label: string };
 export type RosterStudent = { studentId: string; fullName: string };
@@ -62,6 +63,13 @@ const UNMARKED = "";
 
 const selectClass =
   "h-9 w-full border-b border-b-input bg-transparent text-sm text-plum-700 outline-none focus-visible:border-b-ring";
+
+/** Bentuk `GradeRow[]` dari server menjadi state `scores` layar (dan sebaliknya, sebagai snapshot pembanding). */
+function gradesToScores(rows: GradeRow[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const g of rows) result[`${g.studentId}:${g.criterionId}`] = String(g.score);
+  return result;
+}
 
 /**
  * Satu sesi kelas reguler: roster dengan penanda kehadiran, pemilih
@@ -118,11 +126,40 @@ export function SessionCard({
     session.status === SessionStatus.completed ||
     session.status === SessionStatus.completed_absent;
 
-  const [scores, setScores] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    for (const g of grades) initial[`${g.studentId}:${g.criterionId}`] = String(g.score);
-    return initial;
-  });
+  const [scores, setScores] = useState<Record<string, string>>(() =>
+    gradesToScores(grades),
+  );
+  // Snapshot `grades` (bukan `scores`!) tepat setelah render/merge terakhir —
+  // dipakai mergeServerGrades() untuk mengenali sel mana yang BERUBAH di
+  // server sejak terakhir kali disinkron, terlepas dari apa yang sedang
+  // diketik guru di `scores`.
+  const previousGrades = useRef<Record<string, string>>(gradesToScores(grades));
+
+  /**
+   * `SessionCard` dirender dengan `key` yang stabil (page.tsx), sehingga
+   * `router.refresh()` — dipicu saveGrades() MAUPUN saveAttendance() di kartu
+   * yang sama — tidak pernah me-remount komponen ini. Tanpa efek ini,
+   * `scores` yang diinisialisasi sekali lewat useState(() => ...) tidak akan
+   * pernah menyerap `grades` yang baru: sel yang dikosongkan guru (lalu
+   * sengaja tidak dikirim oleh buildGradePayload) akan tampak kosong
+   * SELAMANYA walau server masih menyimpan nilai lama.
+   *
+   * useEffect polos yang menimpa `scores` dari `grades` TIDAK dipakai di sini
+   * karena itu juga akan membuang ketikan guru yang belum disimpan saat
+   * refresh dipicu oleh saveAttendance() di kartu yang sama —
+   * mergeServerGrades() membedakan kedua kasus itu.
+   */
+  useEffect(() => {
+    const serverAfter = gradesToScores(grades);
+    setScores((local) =>
+      mergeServerGrades({ serverBefore: previousGrades.current, local, serverAfter }),
+    );
+    previousGrades.current = serverAfter;
+    // Sengaja hanya bergantung pada `grades`: `scores` diakses lewat updater
+    // fungsional (`setScores((local) => ...)`) supaya efek ini tidak perlu
+    // (dan tidak boleh) berjalan ulang setiap kali guru mengetik.
+  }, [grades]);
+
   const [gradeError, setGradeError] = useState<string | null>(null);
   const [savingGrades, setSavingGrades] = useState(false);
 
@@ -131,12 +168,7 @@ export function SessionCard({
     setGradeError(null);
     // Hanya kirim sel yang benar-benar diisi: penilaian tidak wajib, dan sel
     // kosong berarti "belum dinilai", bukan nol.
-    const payload = Object.entries(scores)
-      .filter(([, value]) => value.trim() !== "")
-      .map(([key, value]) => {
-        const [studentId, criterionId] = key.split(":");
-        return { studentId, criterionId: Number(criterionId), score: Number(value) };
-      });
+    const payload = buildGradePayload(scores);
     if (payload.length === 0) {
       setGradeError("Belum ada nilai yang diisi");
       setSavingGrades(false);
