@@ -29,6 +29,7 @@ import {
   BookOpen,
   CalendarRange,
   School,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RoleName } from "@/generated/prisma/enums";
@@ -90,6 +91,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     href: "/admin/classes",
     label: "Kelas reguler",
     icon: School,
+    roles: [RoleName.super_admin, RoleName.admin],
+  },
+  {
+    href: "/admin/placements",
+    label: "Placement",
+    icon: ClipboardList,
     roles: [RoleName.super_admin, RoleName.admin],
   },
   {
