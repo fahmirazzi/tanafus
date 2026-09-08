@@ -5,9 +5,10 @@ import { ChevronLeft } from "lucide-react";
 import { ForbiddenError, requireRole } from "@/lib/auth-guard";
 import { assertCanAccessClassGroup } from "@/lib/class-groups";
 import { prisma } from "@/lib/prisma";
-import { computeReportCards } from "@/lib/report-card-data";
+import { resolveReportCardView } from "@/lib/report-card";
+import { computeReportCards, storedReportCardFrom } from "@/lib/report-card-data";
 import { CRITERION_SELECT, REGULAR_CRITERION_SCOPES } from "@/lib/feedback";
-import { ReportCardStatus, RoleName } from "@/generated/prisma/enums";
+import { RoleName } from "@/generated/prisma/enums";
 import { Button } from "@/components/ui/button";
 import { ReportCardEditor, type ReportCardRow } from "./report-card-editor";
 
@@ -66,6 +67,12 @@ export default async function TeacherReportCardsPage({
         sessionsHeld: true,
         sessionsAttended: true,
         finalGradeComputed: true,
+        // attendanceThresholdPct & eligibleForNextLevel tidak ditampilkan di
+        // layar guru, tapi ikut di-select agar barisnya utuh sebagai
+        // ReportCardSnapshotRow — satu bentuk snapshot untuk keempat
+        // pemanggil resolveReportCardView.
+        attendanceThresholdPct: true,
+        eligibleForNextLevel: true,
         scores: { select: { criterionId: true, averageScore: true, sessionsScored: true } },
       },
     }),
@@ -82,12 +89,16 @@ export default async function TeacherReportCardsPage({
 
   const byEnrollment = new Map(existing.map((r) => [r.enrollmentId, r]));
 
-  // Rapor terbit menampilkan snapshot beku, bukan hitungan hari ini — sama
-  // persis dengan cabang `frozen` di GET /api/class-groups/[id]/report-cards,
-  // supaya guru tidak pernah melihat dua angka berbeda untuk rapor yang sama.
+  // Rapor terbit menampilkan snapshot beku, bukan hitungan hari ini — satu
+  // keputusan di resolveReportCardView yang dipakai bersama GET
+  // /api/class-groups/[id]/report-cards, layar admin, dan ekspor CSV, supaya
+  // guru tidak pernah melihat dua angka berbeda untuk rapor yang sama.
   const rows: ReportCardRow[] = computations.map((c) => {
     const row = byEnrollment.get(c.enrollmentId);
-    const frozen = row?.status === ReportCardStatus.published;
+    const view = resolveReportCardView(
+      c,
+      row ? storedReportCardFrom(row) : null,
+    );
     return {
       reportCardId: row?.id ?? null,
       studentId: c.studentId,
@@ -96,29 +107,12 @@ export default async function TeacherReportCardsPage({
       publishedAt: row?.publishedAt ? row.publishedAt.toISOString() : null,
       teacherNote: row?.teacherNote ?? null,
       overrideReason: row?.overrideReason ?? null,
-      finalGradeOverride:
-        row?.finalGradeOverride !== null && row?.finalGradeOverride !== undefined
-          ? Number(row.finalGradeOverride)
-          : null,
-      attendancePct: frozen
-        ? row.attendancePct !== null
-          ? Number(row.attendancePct)
-          : null
-        : c.attendancePct,
-      sessionsHeld: frozen ? row.sessionsHeld : c.sessionsHeld,
-      sessionsAttended: frozen ? row.sessionsAttended : c.sessionsAttended,
-      finalGradeComputed: frozen
-        ? row.finalGradeComputed !== null
-          ? Number(row.finalGradeComputed)
-          : null
-        : c.finalGradeComputed,
-      averages: frozen
-        ? row.scores.map((s) => ({
-            criterionId: s.criterionId,
-            averageScore: Number(s.averageScore),
-            sessionsScored: s.sessionsScored,
-          }))
-        : c.averages,
+      finalGradeOverride: view.finalGradeOverride,
+      attendancePct: view.attendancePct,
+      sessionsHeld: view.sessionsHeld,
+      sessionsAttended: view.sessionsAttended,
+      finalGradeComputed: view.finalGradeComputed,
+      averages: view.averages,
     };
   });
 

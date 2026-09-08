@@ -8,6 +8,7 @@ import {
   type AttendanceTally,
   type CriterionAverage,
   type PublishBlockers,
+  type StoredReportCard,
 } from "@/lib/report-card";
 import {
   outstandingMakeupObligations,
@@ -40,6 +41,64 @@ export type ReportCardComputation = {
   attendanceThresholdPct: number;
   eligibleForNextLevel: boolean | null;
 };
+
+/**
+ * Decimal Prisma dilihat secara struktural, bukan lewat tipe runtime-nya:
+ * berkas ini hanya perlu tahu bahwa nilainya bisa dijadikan angka.
+ */
+type DecimalLike = { toNumber(): number };
+
+/**
+ * Baris ReportCard sebagaimana dibaca dari database, dengan KOLOM MINIMUM
+ * yang dibutuhkan resolveReportCardView.
+ *
+ * Tipe ini adalah pagarnya: pemanggil yang lupa men-select salah satu kolom
+ * snapshot akan gagal typecheck, bukan diam-diam menampilkan angka hidup di
+ * bawah label `published` — persis bug yang pernah terjadi (Task 9) ketika
+ * keputusan beku/segar masih ditulis tangan di tiap pemanggil.
+ */
+export type ReportCardSnapshotRow = {
+  status: StoredReportCard["status"];
+  finalGradeOverride: DecimalLike | null;
+  attendancePct: DecimalLike | null;
+  sessionsHeld: number;
+  sessionsAttended: number;
+  finalGradeComputed: DecimalLike | null;
+  attendanceThresholdPct: DecimalLike;
+  eligibleForNextLevel: boolean | null;
+  scores: ReadonlyArray<{
+    criterionId: number;
+    averageScore: DecimalLike;
+    sessionsScored: number;
+  }>;
+};
+
+/**
+ * Konversi baris Prisma menjadi data polos yang dimengerti report-card.ts.
+ * Konversi Decimal → Number tinggal di sini, satu tempat, supaya modul murni
+ * itu tetap nol impor Prisma (retro B1 §2).
+ */
+export function storedReportCardFrom(
+  row: ReportCardSnapshotRow,
+): StoredReportCard {
+  return {
+    status: row.status,
+    finalGradeOverride:
+      row.finalGradeOverride !== null ? Number(row.finalGradeOverride) : null,
+    attendancePct: row.attendancePct !== null ? Number(row.attendancePct) : null,
+    sessionsHeld: row.sessionsHeld,
+    sessionsAttended: row.sessionsAttended,
+    finalGradeComputed:
+      row.finalGradeComputed !== null ? Number(row.finalGradeComputed) : null,
+    attendanceThresholdPct: Number(row.attendanceThresholdPct),
+    eligibleForNextLevel: row.eligibleForNextLevel,
+    averages: row.scores.map((s) => ({
+      criterionId: s.criterionId,
+      averageScore: Number(s.averageScore),
+      sessionsScored: s.sessionsScored,
+    })),
+  };
+}
 
 /** Status sesi yang BENAR-BENAR berlangsung (BR-02.6a). */
 const HELD: SessionStatus[] = [

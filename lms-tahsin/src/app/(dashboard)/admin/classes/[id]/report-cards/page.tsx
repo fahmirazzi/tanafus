@@ -5,8 +5,12 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/auth-guard";
 import { prisma } from "@/lib/prisma";
-import { hasBlockers } from "@/lib/report-card";
-import { computeReportCards, publishBlockersFor } from "@/lib/report-card-data";
+import { hasBlockers, resolveReportCardView } from "@/lib/report-card";
+import {
+  computeReportCards,
+  publishBlockersFor,
+  storedReportCardFrom,
+} from "@/lib/report-card-data";
 import { formatTanggalJamWIB } from "@/lib/datetime";
 import { ReportCardStatus, RoleName } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
@@ -100,13 +104,29 @@ export default async function AdminReportCardsPage({
     computeReportCards(id),
     prisma.reportCard.findMany({
       where: { enrollment: { classGroupId: id } },
+      // Kolom snapshot lengkap (lihat ReportCardSnapshotRow). Layar ini tidak
+      // menampilkan rincian per kriteria, tapi `scores` dan ketiga kolom sesi
+      // tetap ikut di-select supaya barisnya bisa diserahkan apa adanya ke
+      // resolveReportCardView: satu bentuk snapshot untuk keempat pemanggil.
+      // Bentuk yang dipangkas per layar persis yang dulu membuat keputusan
+      // beku/segar ditulis ulang empat kali dan menyimpang di salah satunya.
       select: {
         enrollmentId: true,
         status: true,
         finalGradeOverride: true,
         finalGradeComputed: true,
         attendancePct: true,
+        sessionsHeld: true,
+        sessionsAttended: true,
+        attendanceThresholdPct: true,
         eligibleForNextLevel: true,
+        scores: {
+          select: {
+            criterionId: true,
+            averageScore: true,
+            sessionsScored: true,
+          },
+        },
       },
     }),
   ]);
@@ -120,43 +140,25 @@ export default async function AdminReportCardsPage({
 
   const rows = computations.map((c) => {
     const row = byEnrollment.get(c.enrollmentId);
-    const frozen = row?.status === ReportCardStatus.published;
-
-    // Nilai akhir "terhitung" mengikuti kebekuan: baris terbit membaca
-    // snapshot, draft membaca hitungan hari ini — sama seperti cabang
-    // `frozen` di GET route dan layar guru.
-    const computedGrade = frozen
-      ? row.finalGradeComputed !== null
-        ? Number(row.finalGradeComputed)
-        : null
-      : c.finalGradeComputed;
-
-    // Nilai akhir EFEKTIF (timpaan menang atas hitungan) mengikuti logika
-    // `effective` di POST .../publish — bukan logika CSV rapor
-    // (src/lib/reports.ts), yang sengaja hanya menerapkan timpaan pada baris
-    // published. Di sini admin sedang menimbang APAKAH akan menerbitkan,
-    // jadi angka yang relevan adalah angka yang BENAR-BENAR akan tertulis ke
-    // Enrollment.finalGrade begitu tombol terbit ditekan, termasuk untuk
-    // draft yang gurunya sudah menimpa nilainya sebelum terbit.
-    const finalGrade =
-      row?.finalGradeOverride !== null && row?.finalGradeOverride !== undefined
-        ? Number(row.finalGradeOverride)
-        : computedGrade;
-
-    const attendancePct = frozen
-      ? row.attendancePct !== null
-        ? Number(row.attendancePct)
-        : null
-      : c.attendancePct;
-
-    const eligible = frozen ? row.eligibleForNextLevel : c.eligibleForNextLevel;
+    // Baris terbit membaca snapshot, draft membaca hitungan hari ini, dan
+    // nilai akhir EFEKTIF (timpaan menang atas hitungan) mengikuti logika
+    // `effective` di POST .../publish — semuanya satu keputusan di
+    // resolveReportCardView. Di layar ini admin sedang menimbang APAKAH akan
+    // menerbitkan, jadi angka yang relevan adalah angka yang BENAR-BENAR
+    // akan tertulis ke Enrollment.finalGrade begitu tombol terbit ditekan,
+    // termasuk untuk draft yang gurunya sudah menimpa nilainya sebelum
+    // terbit.
+    const view = resolveReportCardView(
+      c,
+      row ? storedReportCardFrom(row) : null,
+    );
 
     return {
       studentId: c.studentId,
       studentName: c.studentName,
-      attendancePct,
-      finalGrade,
-      eligible,
+      attendancePct: view.attendancePct,
+      finalGrade: view.finalGrade,
+      eligible: view.eligibleForNextLevel,
       status: row?.status ?? null,
     };
   });

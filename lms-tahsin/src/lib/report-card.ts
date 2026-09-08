@@ -125,6 +125,91 @@ export function finalGradeFrom(
 }
 
 /**
+ * Angka rapor satu murid, terlepas dari sumbernya: bisa hasil hitungan hari
+ * ini (ReportCardComputation) atau snapshot yang dibekukan saat penerbitan
+ * (baris ReportCard). Sengaja DATA POLOS — angka/boolean/null, bukan Decimal
+ * Prisma: modul ini wajib bebas Prisma (lihat catatan kepala berkas), jadi
+ * pemanggil yang mengonversi Decimal jadi Number.
+ */
+export type ReportCardFigures = {
+  attendancePct: number | null;
+  sessionsHeld: number;
+  sessionsAttended: number;
+  finalGradeComputed: number | null;
+  attendanceThresholdPct: number;
+  eligibleForNextLevel: boolean | null;
+  averages: CriterionAverage[];
+};
+
+/** Baris ReportCard tersimpan, sudah dikonversi ke data polos. */
+export type StoredReportCard = ReportCardFigures & {
+  status: "draft" | "published";
+  finalGradeOverride: number | null;
+};
+
+export type ReportCardView = ReportCardFigures & {
+  /** True bila angka di atas berasal dari snapshot terbit, bukan hitungan. */
+  frozen: boolean;
+  finalGradeOverride: number | null;
+  /** Nilai akhir efektif — timpaan guru menang atas hitungan. */
+  finalGrade: number | null;
+};
+
+/**
+ * Nilai akhir efektif: timpaan guru menang atas hitungan otomatis.
+ *
+ * SENGAJA bukan `override ?? computed`: timpaan bernilai NOL adalah nilai
+ * yang sah, dan `??` hanya menyaring null/undefined — tapi menuliskannya
+ * sebagai `override || computed` (kesalahan yang mudah terjadi saat
+ * menyalin-tempel logika ini ke pemanggil kelima) akan diam-diam membuang
+ * nol itu. Itulah kenapa keputusannya tinggal di satu fungsi beruji.
+ */
+export function effectiveFinalGrade(
+  override: number | null,
+  computed: number | null,
+): number | null {
+  return override !== null ? override : computed;
+}
+
+/**
+ * Memutuskan angka mana yang ditampilkan untuk satu murid: snapshot beku
+ * atau hitungan segar.
+ *
+ * INI KRITERIA PENERIMAAN RILIS B4, bukan sekadar penyeragaman kode: rapor
+ * yang sudah terbit tidak boleh berubah isinya kecuali lewat penerbitan
+ * ulang. Aturannya sederhana — baris `published` memakai apa yang dibekukan,
+ * baris `draft` dan enrollment yang belum punya baris ReportCard memakai
+ * hitungan hari ini — tapi aturan itu pernah ditulis tangan di empat tempat
+ * dan salah satu salinannya sempat menyimpang, mengirim angka hidup di bawah
+ * label `published`. Satu fungsi murni beruji, empat pemanggil.
+ *
+ * `finalGradeOverride` TIDAK ikut aturan beku/segar: ia hanya ada di baris
+ * tersimpan (tidak ada padanan "terhitung"-nya), jadi selalu dibaca apa
+ * adanya dari `stored`.
+ */
+export function resolveReportCardView(
+  computed: ReportCardFigures,
+  stored: StoredReportCard | null,
+): ReportCardView {
+  const frozen = stored !== null && stored.status === "published";
+  const figures: ReportCardFigures = frozen && stored ? stored : computed;
+  const finalGradeOverride = stored?.finalGradeOverride ?? null;
+
+  return {
+    frozen,
+    attendancePct: figures.attendancePct,
+    sessionsHeld: figures.sessionsHeld,
+    sessionsAttended: figures.sessionsAttended,
+    finalGradeComputed: figures.finalGradeComputed,
+    attendanceThresholdPct: figures.attendanceThresholdPct,
+    eligibleForNextLevel: figures.eligibleForNextLevel,
+    averages: figures.averages,
+    finalGradeOverride,
+    finalGrade: effectiveFinalGrade(finalGradeOverride, figures.finalGradeComputed),
+  };
+}
+
+/**
  * BR-02.6: kehadiran adalah satu-satunya gerbang kenaikan level di B4.
  * Nilai ditampilkan di rapor tapi tidak menentukan — ujian naik level formal
  * sengaja ditunda (spec payung §3.3).

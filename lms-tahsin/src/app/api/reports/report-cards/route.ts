@@ -4,10 +4,10 @@ import { apiError, zodFieldErrors } from "@/lib/api";
 import { handleApiError, requireAuth } from "@/lib/auth-guard";
 import { assertCanAccessClassGroup } from "@/lib/class-groups";
 import { REGULAR_CRITERION_SCOPES } from "@/lib/feedback";
-import { computeReportCards } from "@/lib/report-card-data";
+import { resolveReportCardView } from "@/lib/report-card";
+import { computeReportCards, storedReportCardFrom } from "@/lib/report-card-data";
 import { reportCardsReportFilename, reportCardsReportToCsv } from "@/lib/reports";
 import { classGroupReportQuerySchema } from "@/lib/validations/report";
-import { ReportCardStatus } from "@/generated/prisma/enums";
 
 /** U+FEFF di awal berkas — tanpanya Excel Windows salah menebak encoding. */
 const UTF8_BOM = "﻿";
@@ -48,14 +48,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }),
       prisma.reportCard.findMany({
         where: { enrollment: { classGroupId } },
+        // Kolom snapshot lengkap (lihat ReportCardSnapshotRow): sessionsHeld/
+        // sessionsAttended/attendanceThresholdPct tidak muncul di CSV, tapi
+        // ikut di-select supaya baris ini bisa diserahkan apa adanya ke
+        // resolveReportCardView — satu bentuk snapshot untuk keempat
+        // pemanggil, bukan empat varian yang bisa menyimpang sendiri-sendiri.
         select: {
           enrollmentId: true,
           status: true,
           finalGradeOverride: true,
           finalGradeComputed: true,
           attendancePct: true,
+          sessionsHeld: true,
+          sessionsAttended: true,
+          attendanceThresholdPct: true,
           eligibleForNextLevel: true,
-          scores: { select: { criterionId: true, averageScore: true } },
+          scores: {
+            select: {
+              criterionId: true,
+              averageScore: true,
+              sessionsScored: true,
+            },
+          },
         },
       }),
     ]);
@@ -66,46 +80,33 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const rows = computations.map((c) => {
       const card = cardByEnrollment.get(c.enrollmentId);
       // Baris `published` HARUS memakai snapshot beku (ReportCard +
-      // ReportCardScore), bukan hitungan segar dari computeReportCards() —
-      // meniru logika `frozen` di GET /api/class-groups/[id]/report-cards.
+      // ReportCardScore), bukan hitungan segar dari computeReportCards().
       // Tanpa ini, pernah terjadi CSV berlabel `published` melaporkan nilai
       // akhir yang berbeda dari rapor yang sudah dicetak/dibagikan ke orang
       // tua (mis. 82.5 di CSV vs 62.75 di rapor terbit) — melanggar janji
-      // "rapor terbit tidak berubah" lewat pintu ekspor CSV. Baris `draft`,
-      // atau enrollment yang belum punya baris ReportCard sama sekali, tetap
-      // memakai hitungan segar seperti sebelumnya.
-      const frozen = card?.status === ReportCardStatus.published;
-
-      if (frozen && card) {
-        return {
-          studentName: c.studentName,
-          scores: card.scores.map((s) => ({
-            name: nameById.get(s.criterionId) ?? `Kriteria ${s.criterionId}`,
-            averageScore: Number(s.averageScore),
-          })),
-          // Nilai akhir EFEKTIF — sama seperti yang dicetak PDF rapor
-          // (override menang atas hitungan bila guru pernah menimpanya).
-          finalGrade:
-            card.finalGradeOverride !== null
-              ? Number(card.finalGradeOverride)
-              : card.finalGradeComputed !== null
-                ? Number(card.finalGradeComputed)
-                : null,
-          attendancePct: card.attendancePct !== null ? Number(card.attendancePct) : null,
-          eligible: card.eligibleForNextLevel,
-          status: card.status,
-        };
-      }
+      // "rapor terbit tidak berubah" lewat pintu ekspor CSV. Keputusannya
+      // kini satu-satunya di resolveReportCardView, dipakai bersama layar
+      // admin, layar guru, dan GET /report-cards.
+      const view = resolveReportCardView(
+        c,
+        card ? storedReportCardFrom(card) : null,
+      );
 
       return {
         studentName: c.studentName,
-        scores: c.averages.map((a) => ({
+        scores: view.averages.map((a) => ({
           name: nameById.get(a.criterionId) ?? `Kriteria ${a.criterionId}`,
           averageScore: a.averageScore,
         })),
-        finalGrade: c.finalGradeComputed,
-        attendancePct: c.attendancePct,
-        eligible: c.eligibleForNextLevel,
+        // Kolomnya bernama "Nilai Akhir", bukan "Nilai Akhir Terhitung":
+        // timpaan guru menang di baris draft SEKALIPUN, sama seperti yang
+        // ditampilkan layar admin. Versi sebelumnya hanya menerapkan timpaan
+        // pada baris published, sehingga admin yang membandingkan layar
+        // dengan berkas unduhan melihat dua angka berbeda untuk murid yang
+        // sama.
+        finalGrade: view.finalGrade,
+        attendancePct: view.attendancePct,
+        eligible: view.eligibleForNextLevel,
         status: card?.status ?? "belum disusun",
       };
     });

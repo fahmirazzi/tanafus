@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { apiError, apiOk } from "@/lib/api";
 import { handleApiError, requireAuth } from "@/lib/auth-guard";
 import { assertCanAccessClassGroup } from "@/lib/class-groups";
-import { computeReportCards, publishBlockersFor } from "@/lib/report-card-data";
+import { resolveReportCardView } from "@/lib/report-card";
+import {
+  computeReportCards,
+  publishBlockersFor,
+  storedReportCardFrom,
+} from "@/lib/report-card-data";
 import { TX_OPTIONS } from "@/lib/users";
 import { ReportCardStatus } from "@/generated/prisma/enums";
 
@@ -56,7 +61,13 @@ export async function GET(
 
     const cards = computations.map((c) => {
       const row = byEnrollment.get(c.enrollmentId);
-      const frozen = row?.status === ReportCardStatus.published;
+      // Rapor terbit menampilkan apa yang dibekukan, bukan hitungan hari ini
+      // — keputusan itu tinggal di resolveReportCardView (beruji), bukan
+      // ditulis tangan lagi di sini.
+      const view = resolveReportCardView(
+        c,
+        row ? storedReportCardFrom(row) : null,
+      );
       return {
         reportCardId: row?.id ?? null,
         enrollmentId: c.enrollmentId,
@@ -66,34 +77,14 @@ export async function GET(
         publishedAt: row?.publishedAt ?? null,
         teacherNote: row?.teacherNote ?? null,
         overrideReason: row?.overrideReason ?? null,
-        finalGradeOverride:
-          row?.finalGradeOverride !== null && row?.finalGradeOverride !== undefined
-            ? Number(row.finalGradeOverride)
-            : null,
-        // Rapor terbit menampilkan apa yang dibekukan, bukan hitungan hari ini.
-        attendancePct: frozen
-          ? row.attendancePct !== null
-            ? Number(row.attendancePct)
-            : null
-          : c.attendancePct,
-        sessionsHeld: frozen ? row.sessionsHeld : c.sessionsHeld,
-        sessionsAttended: frozen ? row.sessionsAttended : c.sessionsAttended,
-        finalGradeComputed: frozen
-          ? row.finalGradeComputed !== null
-            ? Number(row.finalGradeComputed)
-            : null
-          : c.finalGradeComputed,
-        attendanceThresholdPct: frozen
-          ? Number(row.attendanceThresholdPct)
-          : c.attendanceThresholdPct,
-        eligibleForNextLevel: frozen ? row.eligibleForNextLevel : c.eligibleForNextLevel,
-        averages: frozen
-          ? row.scores.map((s) => ({
-              criterionId: s.criterionId,
-              averageScore: Number(s.averageScore),
-              sessionsScored: s.sessionsScored,
-            }))
-          : c.averages,
+        finalGradeOverride: view.finalGradeOverride,
+        attendancePct: view.attendancePct,
+        sessionsHeld: view.sessionsHeld,
+        sessionsAttended: view.sessionsAttended,
+        finalGradeComputed: view.finalGradeComputed,
+        attendanceThresholdPct: view.attendanceThresholdPct,
+        eligibleForNextLevel: view.eligibleForNextLevel,
+        averages: view.averages,
       };
     });
 

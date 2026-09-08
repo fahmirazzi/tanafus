@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   attendanceRecap,
   averageByCriterion,
+  effectiveFinalGrade,
   finalGradeFrom,
   hasBlockers,
   isEligible,
+  resolveReportCardView,
   roundTo2,
   tallyAttendance,
+  type ReportCardFigures,
+  type StoredReportCard,
 } from "@/lib/report-card";
 
 describe("tallyAttendance", () => {
@@ -137,6 +141,133 @@ describe("roundTo2", () => {
     expect(roundTo2(12.345)).toBe(12.35);
     expect(roundTo2(71.005)).toBe(71.01);
     expect(roundTo2(83.335)).toBe(83.34);
+  });
+});
+
+describe("effectiveFinalGrade", () => {
+  it("timpaan menang atas hitungan", () => {
+    expect(effectiveFinalGrade(90, 62.75)).toBe(90);
+  });
+
+  it("tanpa timpaan memakai hitungan", () => {
+    expect(effectiveFinalGrade(null, 62.75)).toBe(62.75);
+  });
+
+  it("timpaan NOL yang sah tidak boleh ketimpa hitungan", () => {
+    // Justru kasus yang `override ?? computed` diam-diam salahkan: nol
+    // adalah nilai yang sah dan guru memang bisa menimpanya jadi nol.
+    expect(effectiveFinalGrade(0, 88)).toBe(0);
+  });
+
+  it("keduanya kosong berarti belum ada nilai, bukan nol", () => {
+    expect(effectiveFinalGrade(null, null)).toBeNull();
+  });
+});
+
+describe("resolveReportCardView", () => {
+  const segar: ReportCardFigures = {
+    attendancePct: 80,
+    sessionsHeld: 10,
+    sessionsAttended: 8,
+    finalGradeComputed: 82.5,
+    attendanceThresholdPct: 75,
+    eligibleForNextLevel: true,
+    averages: [{ criterionId: 1, averageScore: 82.5, sessionsScored: 4 }],
+  };
+
+  const beku = (
+    patch: Partial<StoredReportCard> = {},
+  ): StoredReportCard => ({
+    status: "published",
+    finalGradeOverride: null,
+    attendancePct: 50,
+    sessionsHeld: 6,
+    sessionsAttended: 3,
+    finalGradeComputed: 62.75,
+    attendanceThresholdPct: 75,
+    eligibleForNextLevel: false,
+    averages: [{ criterionId: 1, averageScore: 62.75, sessionsScored: 2 }],
+    ...patch,
+  });
+
+  it("baris published memakai snapshot tersimpan, bukan hitungan hari ini", () => {
+    // Inti kriteria penerimaan rilis ini: rapor terbit tidak berubah isinya
+    // hanya karena data di belakangnya dikoreksi.
+    const view = resolveReportCardView(segar, beku());
+    expect(view.frozen).toBe(true);
+    expect(view.attendancePct).toBe(50);
+    expect(view.sessionsHeld).toBe(6);
+    expect(view.sessionsAttended).toBe(3);
+    expect(view.finalGradeComputed).toBe(62.75);
+    expect(view.finalGrade).toBe(62.75);
+    expect(view.eligibleForNextLevel).toBe(false);
+    expect(view.averages).toEqual([
+      { criterionId: 1, averageScore: 62.75, sessionsScored: 2 },
+    ]);
+  });
+
+  it("baris draft memakai hitungan segar", () => {
+    const view = resolveReportCardView(segar, beku({ status: "draft" }));
+    expect(view.frozen).toBe(false);
+    expect(view.attendancePct).toBe(80);
+    expect(view.sessionsHeld).toBe(10);
+    expect(view.sessionsAttended).toBe(8);
+    expect(view.finalGradeComputed).toBe(82.5);
+    expect(view.eligibleForNextLevel).toBe(true);
+    expect(view.averages).toEqual(segar.averages);
+  });
+
+  it("enrollment tanpa baris ReportCard memakai hitungan segar", () => {
+    const view = resolveReportCardView(segar, null);
+    expect(view.frozen).toBe(false);
+    expect(view.attendancePct).toBe(80);
+    expect(view.finalGradeComputed).toBe(82.5);
+    expect(view.finalGradeOverride).toBeNull();
+    expect(view.finalGrade).toBe(82.5);
+  });
+
+  it("timpaan menang atas hitungan, juga pada baris draft", () => {
+    // F3: CSV rapor pernah melaporkan finalGradeComputed untuk baris draft
+    // yang nilainya sudah ditimpa, sementara layar admin melaporkan
+    // timpaannya — dua angka berbeda untuk murid yang sama.
+    const view = resolveReportCardView(
+      segar,
+      beku({ status: "draft", finalGradeOverride: 91 }),
+    );
+    expect(view.finalGradeComputed).toBe(82.5);
+    expect(view.finalGradeOverride).toBe(91);
+    expect(view.finalGrade).toBe(91);
+  });
+
+  it("timpaan NOL yang sah tidak ketimpa hitungan", () => {
+    const view = resolveReportCardView(segar, beku({ finalGradeOverride: 0 }));
+    expect(view.finalGrade).toBe(0);
+  });
+
+  it("attendancePct null bertahan null, tidak jatuh jadi nol", () => {
+    const kosong: ReportCardFigures = {
+      ...segar,
+      attendancePct: null,
+      sessionsHeld: 0,
+      sessionsAttended: 0,
+      finalGradeComputed: null,
+      eligibleForNextLevel: null,
+      averages: [],
+    };
+    const draft = resolveReportCardView(kosong, beku({ status: "draft" }));
+    expect(draft.attendancePct).toBeNull();
+    expect(draft.finalGradeComputed).toBeNull();
+    expect(draft.finalGrade).toBeNull();
+    expect(draft.eligibleForNextLevel).toBeNull();
+
+    const terbit = resolveReportCardView(
+      segar,
+      beku({ attendancePct: null, finalGradeComputed: null, eligibleForNextLevel: null }),
+    );
+    expect(terbit.attendancePct).toBeNull();
+    expect(terbit.finalGradeComputed).toBeNull();
+    expect(terbit.finalGrade).toBeNull();
+    expect(terbit.eligibleForNextLevel).toBeNull();
   });
 });
 
