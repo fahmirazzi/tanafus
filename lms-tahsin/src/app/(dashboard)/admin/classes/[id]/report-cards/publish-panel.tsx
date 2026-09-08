@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FormAlert } from "@/components/form-feedback";
+import { FormAlert, FormNotice } from "@/components/form-feedback";
 import { formatTanggalJamWIB } from "@/lib/datetime";
 
 /**
@@ -122,13 +122,69 @@ export function PublishPanel({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [composing, setComposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<unknown>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  /**
+   * Menyusun / menyegarkan draft seluruh murid — pola dan penanganan galat
+   * disalin dari compose() di layar guru
+   * (teacher/classes/[id]/report-cards/report-card-editor.tsx).
+   *
+   * Tombol ini ADA DI LAYAR ADMIN karena tanpanya admin bisa terkunci di
+   * jalan buntu: bila guru belum menyusun draft (atau ada murid yang
+   * mendaftar setelah draft disusun), POST .../publish menjawab 422 "Masih
+   * ada murid yang belum punya draft rapor" — dan layar guru dijaga
+   * requireRole(teacher) plus middleware prefiks /teacher, jadi admin tidak
+   * punya satu pun layar untuk memperbaikinya. Endpoint POST
+   * /api/class-groups/[id]/report-cards sendiri memang sudah mengizinkan
+   * admin (requireAuth + assertCanAccessClassGroup); yang hilang cuma
+   * tombolnya. Spec B4 §4.8 pun menyebut tombol susun di layar ini.
+   */
+  async function compose() {
+    setComposing(true);
+    setError(null);
+    setDetails(null);
+    setNotice(null);
+    // fetch/res.json() DIBUNGKUS try/catch/finally dengan alasan yang sama
+    // seperti publish() di bawah: tanpa `finally`, exception apa pun
+    // meninggalkan tombol terkunci "Menyusun…" selamanya.
+    try {
+      const res = await fetch(`/api/class-groups/${classGroupId}/report-cards`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.error ?? "Gagal menyusun draft rapor");
+        setDetails(json?.details ?? null);
+        return;
+      }
+      const { created, refreshed, skippedPublished } = json.data as {
+        created: number;
+        refreshed: number;
+        skippedPublished: number;
+      };
+      setNotice(
+        `Draft tersusun: ${created} baru, ${refreshed} disegarkan` +
+          (skippedPublished > 0
+            ? `, ${skippedPublished} sudah terbit dilewati`
+            : "") +
+          ".",
+      );
+      router.refresh();
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setComposing(false);
+    }
+  }
 
   async function publish(confirm: boolean) {
     setBusy(true);
     setError(null);
     setDetails(null);
+    setNotice(null);
     // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
     // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
     // JSON — mis. sesi admin kedaluwarsa sehingga middleware mengembalikan
@@ -183,22 +239,41 @@ export function PublishPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         <FormAlert message={error} />
+        <FormNotice message={notice} />
         <ErrorDetails details={details} />
 
-        <Button
-          type="button"
-          disabled={busy || hasBlockers}
-          onClick={onPublishClick}
-        >
-          {busy
-            ? "Memproses…"
-            : alreadyPublished
-              ? "Terbitkan ulang"
-              : "Terbitkan rapor sekelas"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* SENGAJA tidak dinonaktifkan oleh hasBlockers: menyusun draft
+              justru salah satu langkah membereskan keadaan, dan endpoint-nya
+              tidak menyentuh gerbang publikasi sama sekali. */}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || composing}
+            onClick={() => void compose()}
+          >
+            {composing ? "Menyusun…" : "Susun / segarkan draft"}
+          </Button>
+
+          <Button
+            type="button"
+            disabled={busy || composing || hasBlockers}
+            onClick={onPublishClick}
+          >
+            {busy
+              ? "Memproses…"
+              : alreadyPublished
+                ? "Terbitkan ulang"
+                : "Terbitkan rapor sekelas"}
+          </Button>
+        </div>
+        <p className="text-xs text-plum-500">
+          Rapor yang sudah terbit tidak ikut disegarkan — hanya penerbitan
+          ulang yang boleh mengubahnya.
+        </p>
         {hasBlockers && (
           <p className="text-xs text-plum-500">
-            Tombol nonaktif selama masih ada gerbang merah di atas.
+            Tombol terbitkan nonaktif selama masih ada gerbang merah di atas.
           </p>
         )}
 
