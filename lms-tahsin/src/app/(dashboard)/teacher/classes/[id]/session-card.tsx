@@ -211,15 +211,22 @@ export function SessionCard({
       setSavingGrades(false);
       return;
     }
-    const res = await fetch(`/api/sessions/${session.id}/grades`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ grades: payload }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setGradeError(json?.details?.grades ?? json?.error ?? "Gagal menyimpan nilai");
-    } else {
+    // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
+    // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
+    // JSON, mis. sesi guru kedaluwarsa) membuat exception keluar SEBELUM
+    // setSavingGrades(false) tercapai — tombol "Simpan nilai" terkunci
+    // "Menyimpan..." selamanya. `finally` memastikan itu selalu tercapai.
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/grades`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grades: payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setGradeError(json?.details?.grades ?? json?.error ?? "Gagal menyimpan nilai");
+        return;
+      }
       // JANGAN menggantungkan resinkronisasi ke sini pada router.refresh():
       // mengosongkan sebuah sel lalu menyimpan TIDAK mengubah apa pun di
       // server (buildGradePayload sengaja tidak mengirim sel kosong), jadi
@@ -260,8 +267,11 @@ export function SessionCard({
       // yang benar-benar berbeda. Tidak menghapusnya sengaja: itu bukan
       // duplikasi, hanya tidak lagi menjadi SATU-SATUNYA jalur resinkronisasi.
       router.refresh();
+    } catch {
+      setGradeError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setSavingGrades(false);
     }
-    setSavingGrades(false);
   }
 
   const available = REGULAR_ACTIONS.filter((action) =>
@@ -324,19 +334,32 @@ export function SessionCard({
     const marks = changedMarks();
     if (marks.length === 0) return "noop";
 
-    const response = await fetch(`/api/sessions/${session.id}/attendance`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ marks }),
-    });
-    const payload: unknown = await response.json();
+    // fetch/response.json() DIBUNGKUS try/catch: dipakai dua pemanggil
+    // (saveAttendance, submitAction) yang masing-masing men-setBusy(false)
+    // TEPAT SETELAH memanggil fungsi ini — tanpa try/catch, exception dari
+    // fetch yang gagal (jaringan putus) atau response.json() yang melempar
+    // (respons bukan JSON) akan keluar dari sini SEBELUM pemanggil sempat
+    // menjalankan setBusy(false), mengunci tombolnya selamanya. Dengan
+    // menangkapnya di sini dan mengembalikan "failed", kedua pemanggil tetap
+    // menjalankan setBusy(false) seperti biasa.
+    try {
+      const response = await fetch(`/api/sessions/${session.id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marks }),
+      });
+      const payload: unknown = await response.json();
 
-    if (!response.ok) {
-      const body = payload as { error?: string };
-      setError(body.error ?? "Gagal menyimpan kehadiran.");
+      if (!response.ok) {
+        const body = payload as { error?: string };
+        setError(body.error ?? "Gagal menyimpan kehadiran.");
+        return "failed";
+      }
+      return "ok";
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
       return "failed";
     }
-    return "ok";
   }
 
   async function saveAttendance(): Promise<void> {
@@ -381,56 +404,67 @@ export function SessionCard({
     setError(null);
     setNotice(null);
 
-    // Menutup kelas menuntut roster lengkap di sisi server (spec §5.3).
-    // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
-    // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
-    if (action === "complete" && roster.length > 0) {
-      // "noop" lolos: roster memang sudah lengkap tersimpan, tidak ada yang
-      // perlu ditulis ulang.
-      if ((await putAttendance()) === "failed") {
-        setBusy(false);
+    // Badan fungsi DIBUNGKUS try/catch/finally: tanpa ini, fetch yang gagal
+    // (jaringan putus) atau response.json() yang melempar (respons bukan
+    // JSON) membuat exception keluar SEBELUM setBusy(false) tercapai —
+    // tombol dialog konfirmasi terkunci "Menyimpan..." selamanya dan dialog
+    // tidak bisa ditutup. `finally` memastikan setBusy(false) SELALU
+    // tercapai apa pun hasilnya.
+    try {
+      // Menutup kelas menuntut roster lengkap di sisi server (spec §5.3).
+      // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
+      // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
+      if (action === "complete" && roster.length > 0) {
+        // "noop" lolos: roster memang sudah lengkap tersimpan, tidak ada yang
+        // perlu ditulis ulang.
+        if ((await putAttendance()) === "failed") {
+          setPending(null);
+          return;
+        }
+      }
+
+      const response = await fetch(`/api/sessions/${session.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          lessonId,
+          ...(action === "cancel_institution"
+            ? { makeupAt: { date: makeupDate, startTime: makeupTime } }
+            : {}),
+        }),
+      });
+      const payload: unknown = await response.json();
+
+      if (!response.ok) {
+        const body = payload as {
+          error?: string;
+          details?: Record<string, string>;
+        };
+        const firstDetail = body.details
+          ? Object.values(body.details)[0]
+          : undefined;
+        setError(firstDetail ?? body.error ?? "Gagal memperbarui status sesi.");
         setPending(null);
         return;
       }
-    }
 
-    const response = await fetch(`/api/sessions/${session.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        lessonId,
-        ...(action === "cancel_institution"
-          ? { makeupAt: { date: makeupDate, startTime: makeupTime } }
-          : {}),
-      }),
-    });
-    const payload: unknown = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = payload as {
-        error?: string;
-        details?: Record<string, string>;
-      };
-      const firstDetail = body.details
-        ? Object.values(body.details)[0]
-        : undefined;
-      setError(firstDetail ?? body.error ?? "Gagal memperbarui status sesi.");
+      const data = (
+        payload as { data?: { earning?: { amount: number } | null } }
+      ).data;
       setPending(null);
-      return;
+      setNotice(
+        data?.earning
+          ? `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}". Honor Anda ${formatRupiah(data.earning.amount)}.`
+          : `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}".`,
+      );
+      router.refresh();
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+      setPending(null);
+    } finally {
+      setBusy(false);
     }
-
-    const data = (
-      payload as { data?: { earning?: { amount: number } | null } }
-    ).data;
-    setPending(null);
-    setNotice(
-      data?.earning
-        ? `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}". Honor Anda ${formatRupiah(data.earning.amount)}.`
-        : `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}".`,
-    );
-    router.refresh();
   }
 
   return (

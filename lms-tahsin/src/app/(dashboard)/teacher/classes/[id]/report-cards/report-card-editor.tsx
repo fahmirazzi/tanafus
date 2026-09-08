@@ -73,25 +73,35 @@ function CardEditor({
     if (!row.reportCardId) return;
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/report-cards/${row.reportCardId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        teacherNote: note,
-        // Kosong berarti "tidak ada timpaan", bukan nilai nol.
-        finalGradeOverride: override.trim() === "" ? null : Number(override),
-        overrideReason: reason,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(
-        json?.details?.overrideReason ?? json?.error ?? "Gagal menyimpan rapor",
-      );
-    } else {
-      router.refresh();
+    // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
+    // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
+    // JSON, mis. sesi guru kedaluwarsa) membuat exception keluar SEBELUM
+    // setBusy(false) tercapai — tombol "Simpan" terkunci "Menyimpan…"
+    // selamanya. `finally` memastikan itu selalu tercapai.
+    try {
+      const res = await fetch(`/api/report-cards/${row.reportCardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teacherNote: note,
+          // Kosong berarti "tidak ada timpaan", bukan nilai nol.
+          finalGradeOverride: override.trim() === "" ? null : Number(override),
+          overrideReason: reason,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(
+          json?.details?.overrideReason ?? json?.error ?? "Gagal menyimpan rapor",
+        );
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
@@ -231,29 +241,38 @@ export function ReportCardEditor({
     setBusy(true);
     setError(null);
     setNotice(null);
-    const res = await fetch(`/api/class-groups/${classGroupId}/report-cards`, {
-      method: "POST",
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      setError(json?.error ?? "Gagal menyusun draft rapor");
+    // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
+    // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
+    // JSON) membuat exception keluar SEBELUM setBusy(false) tercapai —
+    // tombol "Susun / segarkan draft" terkunci "Menyusun…" selamanya.
+    // `finally` memastikan itu selalu tercapai.
+    try {
+      const res = await fetch(`/api/class-groups/${classGroupId}/report-cards`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json?.error ?? "Gagal menyusun draft rapor");
+        return;
+      }
+      const { created, refreshed, skippedPublished } = json.data as {
+        created: number;
+        refreshed: number;
+        skippedPublished: number;
+      };
+      setNotice(
+        `Draft tersusun: ${created} baru, ${refreshed} disegarkan` +
+          (skippedPublished > 0
+            ? `, ${skippedPublished} sudah terbit dilewati`
+            : "") +
+          ".",
+      );
+      router.refresh();
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+    } finally {
       setBusy(false);
-      return;
     }
-    const { created, refreshed, skippedPublished } = json.data as {
-      created: number;
-      refreshed: number;
-      skippedPublished: number;
-    };
-    setNotice(
-      `Draft tersusun: ${created} baru, ${refreshed} disegarkan` +
-        (skippedPublished > 0
-          ? `, ${skippedPublished} sudah terbit dilewati`
-          : "") +
-        ".",
-    );
-    setBusy(false);
-    router.refresh();
   }
 
   return (

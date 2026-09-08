@@ -129,24 +129,37 @@ export function PublishPanel({
     setBusy(true);
     setError(null);
     setDetails(null);
-    const res = await fetch(
-      `/api/class-groups/${classGroupId}/report-cards/publish`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm }),
-      },
-    );
-    const json = await res.json();
-    if (!res.ok) {
-      // Daftar penghalang dari server ditampilkan apa adanya: admin harus
-      // bisa bertindak dari pesannya, bukan menebak.
-      setError(json?.error ?? "Gagal menerbitkan rapor");
-      setDetails(json?.details ?? null);
-    } else {
-      router.refresh();
+    // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
+    // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
+    // JSON — mis. sesi admin kedaluwarsa sehingga middleware mengembalikan
+    // redirect HTML, atau galat platform yang tidak lewat handleApiError)
+    // membuat exception keluar SEBELUM setBusy(false) tercapai: tombol
+    // terkunci "Memproses…" selamanya tanpa pesan apa pun, dan admin tidak
+    // bisa mencoba lagi selain memuat ulang halaman. `finally` memastikan
+    // setBusy(false) SELALU tercapai apa pun hasilnya.
+    try {
+      const res = await fetch(
+        `/api/class-groups/${classGroupId}/report-cards/publish`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        // Daftar penghalang dari server ditampilkan apa adanya: admin harus
+        // bisa bertindak dari pesannya, bukan menebak.
+        setError(json?.error ?? "Gagal menerbitkan rapor");
+        setDetails(json?.details ?? null);
+      } else {
+        router.refresh();
+      }
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   function onPublishClick() {
