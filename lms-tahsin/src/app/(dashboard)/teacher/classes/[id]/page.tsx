@@ -119,14 +119,24 @@ export default async function TeacherClassDetailPage({
           Kembali ke kelas saya
         </Button>
 
-        <div className="space-y-1">
-          <h1 className="font-heading text-2xl font-semibold text-plum-800 md:text-3xl">
-            {group.name}
-          </h1>
-          <p className="text-sm text-plum-500">
-            {group.period.name} · Honor {formatRupiah(Number(group.honorPerSession))}
-            /sesi
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="font-heading text-2xl font-semibold text-plum-800 md:text-3xl">
+              {group.name}
+            </h1>
+            <p className="text-sm text-plum-500">
+              {group.period.name} · Honor {formatRupiah(Number(group.honorPerSession))}
+              /sesi
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={<Link href={`/teacher/classes/${id}/report-cards`} />}
+          >
+            Rapor kelas
+          </Button>
         </div>
       </div>
 
