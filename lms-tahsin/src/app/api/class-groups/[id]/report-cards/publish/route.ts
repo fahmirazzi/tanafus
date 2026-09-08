@@ -3,11 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
 import { HttpError, handleApiError, requireRole } from "@/lib/auth-guard";
 import { writeAudit } from "@/lib/audit";
-import {
-  createNotifications,
-  getStudentAudienceIds,
-  sendEventEmail,
-} from "@/lib/notifications";
+import { createNotifications, sendEventEmail } from "@/lib/notifications";
 import { hasBlockers } from "@/lib/report-card";
 import { computeReportCards, publishBlockersFor } from "@/lib/report-card-data";
 import { TX_OPTIONS } from "@/lib/users";
@@ -262,36 +258,77 @@ export async function POST(
     // TIDAK dibungkus di dalamnya — sama seperti POST /sessions/[id]/feedback.
     // Mengirim email adalah panggilan jaringan ke Resend; kalau ditahan di
     // dalam transaksi, kelambatan/kegagalan Resend bisa membuat penerbitan
-    // yang sudah sah ikut gagal atau timeout karenanya. Dibungkus try/catch
-    // per murid supaya satu murid yang gagal dikabari (mis. audience lookup
-    // error) tidak membuat murid lain di kelas yang sama ikut tidak
-    // dikabari, dan tidak membuat admin mengira PENERBITANNYA gagal padahal
-    // sudah commit.
-    for (const r of results) {
-      try {
-        const audience = await getStudentAudienceIds(r.studentId);
-        await createNotifications(prisma, {
-          userIds: audience,
-          type: "report_card_published",
-          title: "Rapor periode sudah terbit",
-          body: `Rapor ${r.studentName} sudah bisa dilihat dan diunduh.`,
-          data: { enrollmentId: r.enrollmentId, studentId: r.studentId },
-        });
-        await sendEventEmail(audience, {
-          subject: "Rapor periode sudah terbit",
-          title: "Rapor periode sudah terbit",
-          body: `Rapor ${r.studentName} sudah bisa dilihat dan diunduh di halaman progres.`,
-        });
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            level: "error",
-            msg: "report_card_publish_notify_failed",
-            enrollmentId: r.enrollmentId,
-            error: String(error),
-          }),
-        );
+    // yang sudah sah ikut gagal atau timeout karenanya.
+    //
+    // BENTUK BATCH, BUKAN LOOP BERURUTAN — ini bukan sekadar optimasi.
+    // Versi sebelumnya menjalankan getStudentAudienceIds → createNotifications
+    // → sendEventEmail satu per satu per murid: kelas 15 murid berarti 30
+    // round-trip database ditambah 15 panggilan jaringan berurutan, di atas
+    // permintaan yang memang sudah panjang. Mode gagalnya yang buruk: bila
+    // fungsi kehabisan waktu DI SINI, transaksinya SUDAH commit — rapor
+    // betul-betul terbit tapi admin melihat kegagalan, lalu percobaan
+    // ulangnya berbenturan 409 dan mendorongnya mengirim confirm: true, yaitu
+    // penerbitan ulang yang tidak pernah ia maksudkan, lengkap dengan baris
+    // AuditLog "republish" palsu dan notifikasi ganda ke orang tua.
+    //
+    // Seluruh blok dibungkus SATU try/catch: kegagalan mengabari siapa pun
+    // tidak boleh membuat admin mengira PENERBITANNYA gagal, padahal sudah
+    // commit dan tidak bisa (serta tidak perlu) dibatalkan.
+    try {
+      const studentIds = results.map((r) => r.studentId);
+
+      // Satu kueri untuk audiens SEKELAS, bukan satu per murid.
+      const links = await prisma.parentStudent.findMany({
+        where: { studentId: { in: studentIds } },
+        select: { studentId: true, parentId: true },
+      });
+      const parentsByStudent = new Map<string, string[]>();
+      for (const link of links) {
+        const list = parentsByStudent.get(link.studentId);
+        if (list) list.push(link.parentId);
+        else parentsByStudent.set(link.studentId, [link.parentId]);
       }
+
+      // Satu createNotifications untuk seluruh penerima (createMany tunggal;
+      // penerima ganda — wali dengan dua anak sekelas — sudah di-dedup di
+      // dalamnya). Karena satu tulisan hanya punya satu badan pesan, badannya
+      // TINGKAT KELAS dan tidak menyebut nama murid: nama murid tetap
+      // disebutkan di email per murid di bawah, dan halaman progres yang
+      // dituju notifikasi ini memang menampilkan rapor per anak.
+      await createNotifications(prisma, {
+        userIds: [...studentIds, ...links.map((l) => l.parentId)],
+        type: "report_card_published",
+        title: "Rapor periode sudah terbit",
+        body: "Rapor periode sudah bisa dilihat dan diunduh di halaman progres.",
+        data: { classGroupId: id },
+      });
+
+      // Email tetap per murid supaya isinya menyebut nama anak yang
+      // bersangkutan, tapi dikirim BERSAMAAN. allSettled, bukan all: satu
+      // murid yang gagal dikabari tidak boleh membatalkan pengiriman untuk
+      // murid lain di kelas yang sama (sendEventEmail sendiri sudah menelan
+      // galatnya, allSettled adalah jaring kedua bila kelak tidak lagi).
+      await Promise.allSettled(
+        results.map((r) =>
+          sendEventEmail(
+            [r.studentId, ...(parentsByStudent.get(r.studentId) ?? [])],
+            {
+              subject: "Rapor periode sudah terbit",
+              title: "Rapor periode sudah terbit",
+              body: `Rapor ${r.studentName} sudah bisa dilihat dan diunduh di halaman progres.`,
+            },
+          ),
+        ),
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          msg: "report_card_publish_notify_failed",
+          classGroupId: id,
+          error: String(error),
+        }),
+      );
     }
 
     return apiOk({
