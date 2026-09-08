@@ -9,8 +9,16 @@ export const cohortGradesSchema = z.object({
     .array(
       z.object({
         studentId: z.string().uuid(),
-        criterionId: z.coerce.number().int().positive(),
-        score: z.coerce.number().min(0, "Nilai minimal 0"),
+        // TIDAK memakai z.coerce di sini: badan permintaan ini JSON, bukan
+        // form HTML, jadi tidak ada string yang perlu dikonversi. z.coerce
+        // juga membuat Number(null) === 0 dan Number("") === 0 lolos diam-
+        // diam sebagai nol — itu tepat kebalikan dari invarian rilis ini,
+        // "sel kosong bukan nol" (lihat buildGradePayload di grade-form.ts,
+        // yang sengaja menyaring sel kosong SEBELUM mengirim, bukan sesudah).
+        // Kalau field ini dikoersi lagi demi "kenyamanan" nanti, jaminan itu
+        // batal dari sisi API meskipun UI-nya sudah benar.
+        criterionId: z.number().int().positive(),
+        score: z.number().min(0, "Nilai minimal 0"),
       }),
     )
     .min(1, "Tidak ada nilai yang dikirim"),
@@ -20,7 +28,15 @@ export const cohortGradesSchema = z.object({
 export const reportCardPatchSchema = z
   .object({
     teacherNote: z.union([z.string().trim().max(2000), z.literal("")]).optional(),
-    finalGradeOverride: z.union([z.coerce.number().min(0).max(100), z.null()]).optional(),
+    // TIDAK memakai z.coerce.number(): Number(null) adalah 0, sehingga cabang
+    // angka pada z.union([z.coerce.number()..., z.null()]) lolos duluan
+    // sebelum z.null() sempat dicoba — null (permintaan MENGHAPUS timpaan)
+    // diam-diam berubah jadi 0 (nilai akhir NOL sungguhan tersimpan). Body
+    // di sini JSON asli, bukan form HTML, jadi tidak ada string yang perlu
+    // dikonversi; .nullable().optional() menjaga tiga keadaan tetap berbeda:
+    // undefined (field tidak dikirim, PATCH parsial tidak menyentuhnya),
+    // null (hapus timpaan), dan number (timpaan baru).
+    finalGradeOverride: z.number().min(0).max(100).nullable().optional(),
     overrideReason: z.union([z.string().trim().max(500), z.literal("")]).optional(),
   })
   .refine(
