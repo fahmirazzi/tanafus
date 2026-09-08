@@ -141,26 +141,6 @@ export async function POST(
 
     await prisma.$transaction(async (tx) => {
       for (const c of computations) {
-        // Status "published" DIBACA DI DALAM transaksi ini, bukan dari kueri
-        // sebelum $transaction. Kalau dibaca di luar, ada jendela TOCTOU:
-        // enrollment yang baru saja diterbitkan oleh permintaan lain di
-        // antara kueri snapshot dan iterasi upsert ini akan tetap tertimpa —
-        // melanggar invarian "POST tidak boleh menyentuh rapor published".
-        // Membaca di sini, dalam transaksi yang sama dengan upsert-nya,
-        // menjamin keputusan skip dan penulisan memakai data yang konsisten.
-        // JANGAN pindahkan pemeriksaan ini keluar transaksi demi "efisiensi".
-        const existing = await tx.reportCard.findUnique({
-          where: { enrollmentId: c.enrollmentId },
-          select: { id: true, status: true },
-        });
-
-        // Rapor yang sudah terbit TIDAK disentuh — hanya penerbitan ulang
-        // yang boleh mengubahnya (spec B4 §4.4).
-        if (existing?.status === ReportCardStatus.published) {
-          skippedPublished += 1;
-          continue;
-        }
-
         const data = {
           attendancePct: c.attendancePct,
           sessionsHeld: c.sessionsHeld,
@@ -169,21 +149,112 @@ export async function POST(
           attendanceThresholdPct: c.attendanceThresholdPct,
           eligibleForNextLevel: c.eligibleForNextLevel,
         };
+        const notPublished = {
+          enrollmentId: c.enrollmentId,
+          status: { not: ReportCardStatus.published },
+        };
 
-        const card = await tx.reportCard.upsert({
-          where: { enrollmentId: c.enrollmentId },
-          create: { enrollmentId: c.enrollmentId, ...data },
-          update: data,
+        // ============================================================
+        // KEPUTUSAN "sudah terbit → lewati" DAN PENULISANNYA ADALAH SATU
+        // PERNYATAAN. JANGAN DIPECAH LAGI JADI "periksa dulu, tulis
+        // kemudian" — itu BUG YANG PERNAH TERJADI DI SINI, bukan
+        // kekhawatiran teoretis.
+        //
+        // Versi sebelumnya membaca status lewat `findUnique`, memutuskan
+        // skip, lalu menulis lewat `upsert` yang payload-nya tidak pernah
+        // memuat kolom `status`. Isolasi transaksi di sini Read Committed
+        // (TX_OPTIONS tidak menyetel isolationLevel), jadi urutan berikut
+        // sah terjadi: `findUnique` membaca "draft" → transaksi penerbitan
+        // commit → `upsert` (yang sempat memblokir di row lock milik
+        // penerbitan) MELANJUTKAN TANPA SYARAT di atas versi baris terbaru.
+        // Akibatnya attendancePct/sessionsHeld/sessionsAttended/
+        // finalGradeComputed/attendanceThresholdPct/eligibleForNextLevel
+        // pada rapor yang BARU SAJA TERBIT tertimpa (status tetap
+        // `published`, tapi angkanya bukan lagi yang dibekukan) dan
+        // Enrollment.finalGrade tidak lagi cocok dengan isi rapornya.
+        // Jendela rentannya bukan jarak antara dua pernyataan itu, melainkan
+        // SELURUH durasi transaksi penerbitan.
+        //
+        // `updateMany` bersyarat `status: { not: published }` menutupnya
+        // sampai ke akar: begitu row lock penerbitan terlepas, Postgres
+        // MENGEVALUASI ULANG WHERE-nya terhadap versi baris terbaru
+        // (EvalPlanQual), jadi baris yang sementara itu jadi `published`
+        // tidak ikut tertulis dan count-nya 0. Tidak ada celah yang bisa
+        // disisipi apa pun, karena keputusan dan penulisannya adalah
+        // pernyataan yang sama.
+        // ============================================================
+        const [updatedRow] = await tx.reportCard.updateManyAndReturn({
+          where: notPublished,
+          data,
+          select: { id: true },
         });
 
-        if (existing) refreshed += 1;
-        else created += 1;
+        let cardId: string;
 
-        await tx.reportCardScore.deleteMany({ where: { reportCardId: card.id } });
+        if (updatedRow) {
+          refreshed += 1;
+          cardId = updatedRow.id;
+        } else {
+          // count === 0 punya DUA arti: barisnya sudah terbit, ATAU barisnya
+          // memang belum ada (draft pertama untuk enrollment ini). Insert
+          // yang mengabaikan duplikat (INSERT ... ON CONFLICT DO NOTHING,
+          // dijaga unique constraint enrollmentId) membedakan keduanya tanpa
+          // melempar. JANGAN diganti `create` + try/catch: exception di
+          // dalam transaksi Postgres membatalkan SELURUH transaksi, jadi
+          // satu tabrakan akan menjatuhkan draft seluruh murid sekelas.
+          const inserted = await tx.reportCard.createMany({
+            data: [{ enrollmentId: c.enrollmentId, ...data }],
+            skipDuplicates: true,
+          });
+
+          if (inserted.count > 0) {
+            created += 1;
+            // Barisnya baru saja KITA sisipkan di dalam transaksi ini, jadi
+            // row lock-nya ada di tangan kita sampai commit: pembacaan id ini
+            // tidak bisa dibalap siapa pun, dan ia TIDAK ikut menentukan
+            // boleh-tidaknya menulis (baris baru selalu berstatus `draft`) —
+            // jadi ini bukan "periksa dulu, tulis kemudian" yang dilarang di
+            // atas, hanya pengambilan kunci asing untuk skor di bawah.
+            const insertedRow = await tx.reportCard.findUniqueOrThrow({
+              where: { enrollmentId: c.enrollmentId },
+              select: { id: true },
+            });
+            cardId = insertedRow.id;
+          } else {
+            // Barisnya ada, tapi tidak tersentuh updateMany di atas. Dua
+            // kemungkinan: sudah `published` (memang harus dilewati), atau
+            // permintaan POST lain baru saja membuat draft-nya di antara dua
+            // pernyataan kita. Satu percobaan bersyarat lagi memisahkannya
+            // secara pasti — kalau kali ini pun tidak ada baris yang
+            // tertulis, barisnya ADA dan bukan draft, berarti published.
+            const [retriedRow] = await tx.reportCard.updateManyAndReturn({
+              where: notPublished,
+              data,
+              select: { id: true },
+            });
+            if (!retriedRow) {
+              // Rapor yang sudah terbit TIDAK disentuh — hanya penerbitan
+              // ulang yang boleh mengubahnya (spec B4 §4.4).
+              skippedPublished += 1;
+              continue;
+            }
+            refreshed += 1;
+            cardId = retriedRow.id;
+          }
+        }
+
+        // deleteMany + createMany di bawah HANYA berjalan untuk baris yang
+        // benar-benar kita tulis di atas: baris published selalu berakhir di
+        // cabang `skippedPublished` dan tidak pernah sampai ke sini, jadi
+        // skor yang sudah beku tidak pernah dihapus lalu ditulis ulang.
+        // Sesudah tulisan bersyarat itu berhasil, transaksi ini memegang row
+        // lock ReportCard-nya sampai commit — penerbitan tidak bisa
+        // menyelinap di antara penghapusan dan penulisan ulang skor.
+        await tx.reportCardScore.deleteMany({ where: { reportCardId: cardId } });
         if (c.averages.length > 0) {
           await tx.reportCardScore.createMany({
             data: c.averages.map((a) => ({
-              reportCardId: card.id,
+              reportCardId: cardId,
               criterionId: a.criterionId,
               averageScore: a.averageScore,
               sessionsScored: a.sessionsScored,
