@@ -7,7 +7,13 @@ const nextConfig: NextConfig = {
   // (dimuat lewat path dinamis saat runtime, bukan require() statis).
   // Tanpa ini, fungsi serverless di Vercel kehilangan file .so.node-nya.
   outputFileTracingIncludes: {
-    "/*": ["./src/generated/prisma/**/*"],
+    "/*": [
+      "./src/generated/prisma/**/*",
+      // Font PDF dibaca lewat path runtime (process.cwd()), bukan import
+      // statis, jadi @vercel/nft tidak melihatnya — persis alasan yang sama
+      // dengan query engine Prisma di baris atas.
+      "./src/lib/report-card-pdf/fonts/**/*",
+    ],
   },
 
   async headers() {
