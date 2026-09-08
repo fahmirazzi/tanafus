@@ -314,13 +314,14 @@ dan `rescheduled`.
 **Rekap kehadiran (BR-02.6).**
 
 ```
-attendancePct = (present + late) / (present + late + absent)
+attendancePct = (present + late) / (present + late + excused + absent)
 ```
 
-Sesi `excused` keluar dari penyebut — tidak menolong, tidak merugikan.
-Sesi yang dibatalkan lembaga atau guru dikeluarkan sama sekali. Ambang
-dari `Course.attendanceThresholdPct` (default 75), tampil langsung di
-roster kelas dan di-snapshot ke rapor.
+Sesi `excused` tetap di penyebut — izin yang disetujui melindungi murid
+dari kelayakan turun namun tidak dari kewajiban attendance terhadap
+gerbang naik level (BR-02.6b). Sesi yang dibatalkan lembaga atau guru
+dikeluarkan sama sekali. Ambang dari `Course.attendanceThresholdPct`
+(default 75), tampil langsung di roster kelas dan di-snapshot ke rapor.
 
 ### 4.4 Billing & Payroll
 
