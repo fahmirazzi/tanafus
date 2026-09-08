@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import {
-  assertCanAccess,
+  assertStudentOrGuardian,
   handleApiError,
   isAdmin,
   requireAuth,
@@ -73,11 +73,15 @@ export async function GET(
 
     const isOwnTeacher = user.id === card.enrollment.classGroup.teacherId;
     if (!isAdmin(user) && !isOwnTeacher) {
-      // Murid dan walinya lewat jalur kepemilikan yang sudah ada (NFR-2, IDOR).
-      await assertCanAccess(user, {
-        kind: "student",
-        studentId: card.enrollment.studentId,
-      });
+      // Sengaja BUKAN assertCanAccess: cabang guru di sana meloloskan guru
+      // privat murid ini untuk pelajaran LAIN (lewat PrivateAssignment/
+      // Session/PrivateRecurringSchedule), padahal spec B4 §4.4 cuma
+      // mengizinkan empat pihak (admin, guru kelas ITU, murid, wali) — di
+      // luar admin & guru kelas yang sudah ditangani di atas, sisanya HANYA
+      // murid itu sendiri atau walinya. Lihat komentar assertStudentOrGuardian
+      // di auth-guard.ts untuk alasan lengkap kenapa ini bukan pemakaian ulang
+      // assertCanAccess.
+      await assertStudentOrGuardian(user, card.enrollment.studentId);
     }
 
     const buffer = await renderReportCardPdf({

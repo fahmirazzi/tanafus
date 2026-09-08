@@ -118,6 +118,38 @@ async function isParentOf(parentId: string, studentId: string): Promise<boolean>
 }
 
 /**
+ * Helper akses SEMPIT khusus untuk endpoint yang wajib membatasi diri ke
+ * TEPAT dua pihak: murid itu sendiri dan walinya — misalnya unduhan PDF
+ * rapor (spec B4 §4.4 menyebut EMPAT pihak berhak: admin, guru KELAS ITU,
+ * murid, wali; tidak ada "guru lain mana pun").
+ *
+ * SENGAJA TIDAK memanggil `assertCanAccess(user, { kind: "student", ... })`
+ * meskipun terlihat sinonim: cabang guru di `assertCanAccess`
+ * (`isTeacherOf`) meloloskan SIAPA PUN guru yang punya hubungan mengajar ke
+ * murid tsb lewat PrivateAssignment/Session/PrivateRecurringSchedule —
+ * termasuk guru privat pelajaran lain yang tidak ada urusannya dengan kelas
+ * reguler yang datanya diminta. Itu perilaku yang benar untuk endpoint lain
+ * (progres murid lintas guru), tapi bocor kalau dipakai di sini. Helper ini
+ * tidak punya cabang guru sama sekali, supaya pemanggil berikutnya tidak
+ * bisa "menyederhanakannya" balik ke assertCanAccess tanpa sadar membuka
+ * celah itu lagi.
+ *
+ * Admin TIDAK otomatis lolos di sini — pemanggil (route) yang mengurus
+ * cabang admin & guru kelas lebih dulu, supaya makna helper ini tetap
+ * tegas: "apakah user ini murid X atau wali murid X", titik.
+ */
+export async function assertStudentOrGuardian(
+  user: SessionUser,
+  studentId: string,
+): Promise<void> {
+  if (user.id === studentId) return;
+  if (hasRole(user, RoleName.parent) && (await isParentOf(user.id, studentId))) {
+    return;
+  }
+  throw new ForbiddenError();
+}
+
+/**
  * Guru terhubung ke murid privat lewat penugasan (PrivateAssignment), sesi,
  * ATAU recurring schedule (docs/02 — Aturan Owner-Scoping poin 1).
  *
