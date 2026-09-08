@@ -582,7 +582,7 @@ persetujuan — maka lima hal berikut diajukan, bukan diasumsikan.
 | ID | Usulan | Alasan |
 |---|---|---|
 | BR-02.4a | Sesi reguler TIDAK menyediakan `cancelled_teacher`. Pembatalan oleh guru pada kelas reguler adalah `cancelled_institution` dan karenanya wajib make-up. | Tanpa ini, guru bisa menghindari kewajiban make-up hanya dengan menekan tombol yang lain. Bagi keluarga, guru membatalkan sama saja lembaga membatalkan. |
-| BR-02.6a | `attendancePct = (present + late) / (present + late + absent)`. `excused` keluar dari penyebut; sesi batal lembaga/guru dikeluarkan sama sekali. | BR-02.6 menjadikan kehadiran gerbang kenaikan level tapi tidak pernah mendefinisikan apakah izin yang disetujui dihitung hadir. |
+| BR-02.6a | **DISETUJUI DENGAN PERUBAHAN — lihat `docs/03-business-rules.md` BR-02.6a + BR-02.6b.** `attendancePct = (present + late) / (present + late + excused + absent)`. `excused` TETAP di penyebut; sesi batal lembaga/guru dan sesi yang direschedule dikeluarkan sama sekali. Usulan awal mengeluarkan `excused`, dan itu dibalik saat disetujui (changelog 2026-09-05): izin yang disetujui melindungi murid dari kehangusan, TIDAK dari kelayakan naik level. | BR-02.6 menjadikan kehadiran gerbang kenaikan level tapi tidak pernah mendefinisikan apakah izin yang disetujui dihitung hadir. |
 | BR-04.8 | Biaya periode ditagih di muka lewat `EnrollmentCharge`; admin boleh mengubahnya menjadi cicilan selama belum ter-invoice. Satu invoice tidak mencampur charge privat dan periode. | BR-04 hanya mengenal charge per sesi. |
 | BR-04.6a | Untuk reguler, suspensi karena tunggakan menetapkan `Enrollment.status = suspended` dan memblokir pendaftaran periode berikutnya, TAPI tidak menghentikan sesi berjalan. | BR-04.6 ditulis untuk booking sesi privat; kohort tidak bisa dihentikan per keluarga. |
 | BR-05.5 | Upah sesi reguler = honor flat `ClassGroup.honorPerSession`, di-snapshot saat pembuatan, mengalir ke guru pengganti bila ada. Honor tetap diberikan bila tidak ada murid yang hadir. | Formula BR-05.1 (`charge.amount × revenue_share_pct`) tidak menjangkau reguler sama sekali karena reguler tidak punya charge. |
@@ -632,8 +632,13 @@ mulai mengumpulkan lead sebelum kelas benar-benar bisa dibuka.
   meski persetujuan datang setelah sesi mulai.
 - Sesi reguler tidak bisa diselesaikan selama masih ada murid terdaftar
   tanpa status kehadiran.
-- Membatalkan kelas reguler tanpa menjadwalkan make-up membuat kewajiban
-  terbuka, dan rapor class group itu tidak bisa dipublikasikan.
+- Gerbang "sesi `cancelled_institution` tanpa make-up penutup memblokir
+  publikasi rapor class group itu" sudah diverifikasi bekerja — lewat
+  penghalang lain, karena pemicunya sendiri sudah tidak tercapai lagi:
+  BR-02.4 kini menolak `cancel_institution` tanpa `makeupAt` tepat saat
+  pembatalan diajukan, jadi kewajiban terbuka tidak pernah lahir dari
+  alur normal aplikasi. Gerbangnya dibiarkan berdiri sebagai pertahanan
+  berlapis untuk data lama yang sempat masuk sebelum aturan itu ada.
 - Rapor yang sudah terbit tidak berubah isinya ketika nilai atau
   kehadiran di belakangnya dikoreksi; hanya publikasi ulang yang
   mengubahnya.
