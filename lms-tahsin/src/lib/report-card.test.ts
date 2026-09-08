@@ -127,6 +127,17 @@ describe("roundTo2", () => {
     expect(roundTo2(2.005)).toBe(2.01);
     expect(roundTo2(83.333333)).toBe(83.33);
   });
+
+  it("tetap setengah-ke-atas untuk besaran dua digit", () => {
+    // Trik `+ Number.EPSILON` yang lama hanya bekerja selagi EPSILON masih
+    // signifikan relatif terhadap nilainya: 2.005 kebetulan benar, 5.015
+    // jatuh ke 5.01. Nilai seperti ini betul-betul tercapai lewat
+    // finalGradeFrom yang merata-ratakan angka yang SUDAH dibulatkan.
+    expect(roundTo2(5.015)).toBe(5.02);
+    expect(roundTo2(12.345)).toBe(12.35);
+    expect(roundTo2(71.005)).toBe(71.01);
+    expect(roundTo2(83.335)).toBe(83.34);
+  });
 });
 
 describe("hasBlockers", () => {

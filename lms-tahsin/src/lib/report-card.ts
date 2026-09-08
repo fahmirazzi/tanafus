@@ -25,9 +25,23 @@ export type AttendanceRecap = {
   attendancePct: number | null;
 };
 
-/** Pembulatan setengah-ke-atas ke dua desimal. */
+/**
+ * Pembulatan setengah-ke-atas ke dua desimal.
+ *
+ * Epsilon ABSOLUT (1e-9) pada skala ratusan, bukan `value + Number.EPSILON`:
+ * EPSILON berskala 2.2e-16 dan hanya cukup mengoreksi galat representasi
+ * selagi ia masih signifikan relatif terhadap nilainya. Untuk besaran dua
+ * digit ia tidak lagi cukup — 5.015 tersimpan sebagai 5.014999… sehingga
+ * versi lamanya menghasilkan 5.01, padahal 2.005 dan 83.335 kebetulan benar.
+ * Nilai .xx5 seperti itu betul-betul tercapai lewat finalGradeFrom yang
+ * merata-ratakan angka yang SUDAH dibulatkan.
+ *
+ * 1e-9 jauh lebih besar daripada galat representasi pada rentang nilai rapor
+ * (0-100) namun jauh lebih kecil daripada satu perseratus, jadi ia tidak
+ * pernah menggeser angka yang memang tidak berada di batas pembulatan.
+ */
 export function roundTo2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+  return Math.round(value * 100 + 1e-9) / 100;
 }
 
 const COUNTED: readonly string[] = ["present", "late", "excused", "absent"];
