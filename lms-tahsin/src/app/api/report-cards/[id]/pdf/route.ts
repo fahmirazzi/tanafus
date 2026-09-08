@@ -7,6 +7,7 @@ import {
   isAdmin,
   requireAuth,
 } from "@/lib/auth-guard";
+import { effectiveFinalGrade } from "@/lib/report-card";
 import { renderReportCardPdf } from "@/lib/report-card-pdf/render";
 import { ReportCardStatus } from "@/generated/prisma/enums";
 
@@ -97,13 +98,12 @@ export async function GET(
       thresholdPct: Number(card.attendanceThresholdPct),
       eligible: card.eligibleForNextLevel,
       // Nilai efektif: timpaan guru menang bila ada, sesuai aturan yang
-      // sama dipakai di PATCH dan penerbitan (spec B4 §4.4).
-      finalGrade:
-        card.finalGradeOverride !== null
-          ? Number(card.finalGradeOverride)
-          : card.finalGradeComputed !== null
-            ? Number(card.finalGradeComputed)
-            : null,
+      // sama dipakai di PATCH dan penerbitan (spec B4 §4.4) — satu fungsi
+      // beruji, bukan aturan yang ditulis ulang di tiap pemakainya.
+      finalGrade: effectiveFinalGrade(
+        card.finalGradeOverride !== null ? Number(card.finalGradeOverride) : null,
+        card.finalGradeComputed !== null ? Number(card.finalGradeComputed) : null,
+      ),
       scores: card.scores.map((s) => ({
         name: s.criterion.name,
         averageScore: Number(s.averageScore),

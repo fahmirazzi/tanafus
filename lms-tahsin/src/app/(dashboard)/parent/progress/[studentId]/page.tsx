@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth-guard";
 import { guardPageAccess } from "@/lib/page-guard";
 import { prisma } from "@/lib/prisma";
+import { effectiveFinalGrade } from "@/lib/report-card";
 import { loadStudentProgress } from "@/lib/student-progress";
 import { formatTanggalWIB } from "@/lib/datetime";
 import { ReportCardStatus } from "@/generated/prisma/enums";
@@ -155,14 +156,17 @@ export default async function ParentStudentProgressPage({
             ) : (
               reportCards.map((card) => {
                 // Nilai efektif: timpaan guru menang atas hitungan otomatis —
-                // sama seperti logika `effective` di POST .../publish, bukan 0
-                // saat keduanya null.
-                const finalGrade =
+                // aturan yang sama dipakai penerbitan, PDF, layar admin, dan
+                // ekspor CSV, jadi satu fungsi beruji, bukan ditulis ulang di
+                // sini. Ia juga tidak pernah jatuh jadi 0 saat keduanya null.
+                const finalGrade = effectiveFinalGrade(
                   card.finalGradeOverride !== null
                     ? Number(card.finalGradeOverride)
-                    : card.finalGradeComputed !== null
-                      ? Number(card.finalGradeComputed)
-                      : null;
+                    : null,
+                  card.finalGradeComputed !== null
+                    ? Number(card.finalGradeComputed)
+                    : null,
+                );
 
                 return (
                   <div
