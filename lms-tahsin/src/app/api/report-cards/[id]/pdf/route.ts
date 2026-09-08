@@ -116,7 +116,19 @@ export async function GET(
       publishedAt: card.publishedAt ?? new Date(),
     });
 
-    const safeName = card.enrollment.student.fullName.replace(/[^\w\s-]/g, "").trim();
+    // Kelas karakternya SENGAJA tidak lagi memakai \s: \s mencakup \r dan \n,
+    // sehingga nama ber-baris-baru ikut utuh ke dalam nilai header
+    // Content-Disposition di bawah — bentuk header-injection yang tidak layak
+    // lolos ke main, apa pun kemungkinan hasil akhirnya di runtime. Yang
+    // dipertahankan hanya huruf/angka/underscore, spasi, dan tanda hubung.
+    //
+    // Cadangan id rapor bila hasil sanitasinya kosong: nama beraksara
+    // non-Latin (Arab, Han) habis tersaring dan menghasilkan berkas bernama
+    // "rapor-.pdf" yang sama untuk setiap murid seperti itu.
+    const sanitized = card.enrollment.student.fullName
+      .replace(/[^\w -]/g, "")
+      .trim();
+    const safeName = sanitized === "" ? id : sanitized;
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
