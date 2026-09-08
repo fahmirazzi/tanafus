@@ -112,14 +112,23 @@ export async function computeReportCards(
   });
 }
 
-/** Ketiga penghalang publikasi (spec B4 §4.4), lengkap dengan daftar isinya. */
+/**
+ * Ketiga penghalang publikasi (spec B4 §4.4), lengkap dengan daftar isinya.
+ *
+ * `computations` opsional: pemanggil yang SUDAH punya hasil `computeReportCards`
+ * untuk classGroupId yang sama (mis. GET /report-cards) meneruskannya di sini
+ * supaya findUnique + kedua findMany di dalamnya tidak dijalankan dua kali
+ * untuk data yang identik. Parameter ini WAJIB tetap opsional — Task 7
+ * (endpoint terbitkan) memanggil fungsi ini sendirian tanpa computations siap.
+ */
 export async function publishBlockersFor(
   classGroupId: string,
+  computations?: ReportCardComputation[],
 ): Promise<PublishBlockers> {
-  const [makeups, stale, computations] = await Promise.all([
+  const [makeups, stale, resolvedComputations] = await Promise.all([
     outstandingMakeupObligations(classGroupId),
     staleScheduledSessions(classGroupId),
-    computeReportCards(classGroupId),
+    computations ? Promise.resolve(computations) : computeReportCards(classGroupId),
   ]);
 
   return {
@@ -131,7 +140,7 @@ export async function publishBlockersFor(
       sessionId: s.id,
       scheduledAt: s.scheduledAt,
     })),
-    studentsWithoutSessions: computations
+    studentsWithoutSessions: resolvedComputations
       .filter((c) => c.attendancePct === null)
       .map((c) => ({ studentId: c.studentId, fullName: c.studentName })),
   };

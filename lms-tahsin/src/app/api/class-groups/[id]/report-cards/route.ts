@@ -25,7 +25,10 @@ export async function GET(
     const { id } = await ctx.params;
     await assertCanAccessClassGroup(user, id);
 
-    const [existing, computations, blockers] = await Promise.all([
+    // computeReportCards dihitung SEKALI di sini lalu diberikan ke
+    // publishBlockersFor — tanpa ini, setiap GET menjalankan findUnique +
+    // kedua findMany di computeReportCards dua kali untuk data yang identik.
+    const [existing, computations] = await Promise.all([
       prisma.reportCard.findMany({
         where: { enrollment: { classGroupId: id } },
         select: {
@@ -46,8 +49,8 @@ export async function GET(
         },
       }),
       computeReportCards(id),
-      publishBlockersFor(id),
     ]);
+    const blockers = await publishBlockersFor(id, computations);
 
     const byEnrollment = new Map(existing.map((r) => [r.enrollmentId, r]));
 
@@ -132,28 +135,31 @@ export async function POST(
       return apiError("Kelas ini belum punya murid terdaftar", 422);
     }
 
-    const published = await prisma.reportCard.findMany({
-      where: {
-        enrollment: { classGroupId: id },
-        status: ReportCardStatus.published,
-      },
-      select: { enrollmentId: true },
-    });
-    const frozen = new Set(published.map((r) => r.enrollmentId));
-
     let created = 0;
     let refreshed = 0;
+    let skippedPublished = 0;
 
     await prisma.$transaction(async (tx) => {
       for (const c of computations) {
-        // Rapor yang sudah terbit TIDAK disentuh — hanya penerbitan ulang
-        // yang boleh mengubahnya (spec B4 §4.4).
-        if (frozen.has(c.enrollmentId)) continue;
-
+        // Status "published" DIBACA DI DALAM transaksi ini, bukan dari kueri
+        // sebelum $transaction. Kalau dibaca di luar, ada jendela TOCTOU:
+        // enrollment yang baru saja diterbitkan oleh permintaan lain di
+        // antara kueri snapshot dan iterasi upsert ini akan tetap tertimpa —
+        // melanggar invarian "POST tidak boleh menyentuh rapor published".
+        // Membaca di sini, dalam transaksi yang sama dengan upsert-nya,
+        // menjamin keputusan skip dan penulisan memakai data yang konsisten.
+        // JANGAN pindahkan pemeriksaan ini keluar transaksi demi "efisiensi".
         const existing = await tx.reportCard.findUnique({
           where: { enrollmentId: c.enrollmentId },
-          select: { id: true },
+          select: { id: true, status: true },
         });
+
+        // Rapor yang sudah terbit TIDAK disentuh — hanya penerbitan ulang
+        // yang boleh mengubahnya (spec B4 §4.4).
+        if (existing?.status === ReportCardStatus.published) {
+          skippedPublished += 1;
+          continue;
+        }
 
         const data = {
           attendancePct: c.attendancePct,
@@ -187,7 +193,7 @@ export async function POST(
       }
     }, TX_OPTIONS);
 
-    return apiOk({ created, refreshed, skippedPublished: frozen.size });
+    return apiOk({ created, refreshed, skippedPublished });
   } catch (error) {
     return handleApiError(error);
   }
