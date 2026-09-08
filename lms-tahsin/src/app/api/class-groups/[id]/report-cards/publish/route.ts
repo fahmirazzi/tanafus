@@ -71,7 +71,19 @@ export async function POST(
       where: { enrollment: { classGroupId: id } },
       select: { id: true, enrollmentId: true, status: true },
     });
-    const byEnrollment = new Map(existing.map((r) => [r.enrollmentId, r]));
+
+    // Kueri di atas mengambil rapor SELURUH enrollment kelas ini, termasuk
+    // yang sudah `dropped`, sedangkan computations hanya `active`/`suspended`
+    // (lihat computeReportCards). Tanpa penyaringan ini, satu murid yang
+    // di-drop SETELAH rapornya terbit membuat kelas yang belum pernah terbit
+    // sama sekali menuntut confirm: true dan tombolnya berbunyi "Terbitkan
+    // ulang" — padahal rapor yang akan ditulis di bawah tidak menyentuh
+    // baris murid itu sedikit pun. Penyaringan di sisi JS, bukan di where:
+    // definisi "enrollment yang masuk rapor" hanya boleh hidup di satu
+    // tempat, dan tempat itu computeReportCards.
+    const inScope = new Set(computations.map((c) => c.enrollmentId));
+    const relevant = existing.filter((r) => inScope.has(r.enrollmentId));
+    const byEnrollment = new Map(relevant.map((r) => [r.enrollmentId, r]));
 
     const missingDraft = computations.filter(
       (c) => !byEnrollment.has(c.enrollmentId),
@@ -88,7 +100,7 @@ export async function POST(
       });
     }
 
-    const alreadyPublished = existing.filter(
+    const alreadyPublished = relevant.filter(
       (r) => r.status === ReportCardStatus.published,
     );
     if (alreadyPublished.length > 0 && !confirm) {
@@ -130,17 +142,26 @@ export async function POST(
     // yang jadi wasit sebenarnya, dan permintaan kedua yang tanpa confirm
     // akan ditolak 409 alih-alih diam-diam menerbitkan ulang.
     //
-    // BATAS JUJUR pola ini: lock ini hanya melindungi dari balapan ANTAR
-    // permintaan endpoint INI. Ia tidak menutup jendela di
-    // POST /api/class-groups/[id]/report-cards (penyusun draft) — endpoint
-    // itu membaca status lalu menulis lewat DUA pernyataan terpisah tanpa
-    // lock, dan tulisannya (upsert) tidak bersyarat pada status (lihat
-    // catatan di file itu). Kalau permintaan POST tsb membaca status
-    // "draft" tepat SEBELUM transaksi kita commit, tulisannya baru betul-
-    // betul jalan SETELAH kita commit (menunggu lock ini terlepas), dan ia
-    // bisa menimpa attendancePct/finalGradeComputed/dst pada rapor yang
-    // BARU SAJA terbit — tanpa mengubah kolom status. Menutup celah itu
-    // sepenuhnya perlu mengubah file POST tsb (di luar cakupan task ini).
+    // LINGKUP pola ini, dan siapa yang menjaga sisanya: lock di sini adalah
+    // wasit balapan ANTAR permintaan endpoint INI. Penulis rapor yang lain —
+    // POST /api/class-groups/[id]/report-cards (penyusun draft) dan PATCH
+    // /api/report-cards/[id] (narasi & timpaan nilai) — TIDAK bergantung
+    // pada lock ini: keduanya memakai tulisan BERSYARAT
+    // `status: { not: published }` dalam satu pernyataan, sehingga Postgres
+    // mengevaluasi ulang syaratnya terhadap versi baris terbaru begitu lock
+    // kita terlepas (EvalPlanQual) dan tidak menulis apa pun ke rapor yang
+    // sementara itu menjadi terbit. Jadi invarian "rapor terbit hanya berubah
+    // lewat penerbitan ulang" ditegakkan di TIGA berkas sekaligus, bukan
+    // hanya di sini.
+    //
+    // Konsekuensinya untuk pembaca berikutnya: perlindungan di berkas mana
+    // pun dari ketiganya tidak boleh dilepas dengan alasan "toh yang lain
+    // sudah menjaga". Lock di sini tidak menggantikan tulisan bersyarat di
+    // sana (ia tidak mengunci baris yang belum ada, mis. draft pertama yang
+    // sedang disisipkan), dan tulisan bersyarat di sana tidak menggantikan
+    // lock di sini (status `published` → `published` pada penerbitan ulang
+    // adalah tulisan yang sah, jadi tidak ada syarat status yang bisa
+    // memisahkan dua penerbitan yang berbalapan).
     // ============================================================
     await prisma.$transaction(async (tx) => {
       for (const c of computations) {
