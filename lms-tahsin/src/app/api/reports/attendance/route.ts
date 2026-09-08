@@ -41,6 +41,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // per murid dari definisi "sesi yang benar-benar berlangsung" (BR-02.6a).
     // TIDAK mengkueri ulang SessionAttendance di sini — itu menduplikasi
     // definisi itu di dua tempat yang bisa menyimpang seiring waktu.
+    //
+    // CSV INI SENGAJA SELALU MEMAKAI ANGKA HIDUP, TIDAK PERNAH SNAPSHOT BEKU
+    // — beda dengan /api/reports/report-cards (yang untuk baris `published`
+    // wajib memakai snapshot ReportCard/ReportCardScore, karena pernah
+    // terbukti CSV berlabel `published` melaporkan nilai akhir yang berbeda
+    // dari rapor yang sudah dicetak). Rekap ini BUKAN artefak rapor: ia
+    // menjawab "bagaimana kehadiran sejauh ini" secara operasional, tidak
+    // punya kolom status yang menjanjikan kebekuan, dan tidak dijamin cocok
+    // dengan rapor mana pun. JANGAN "menyeragamkan" route ini dengan pola
+    // frozen di atas — itu akan menyembunyikan kehadiran hari ini di balik
+    // angka rapor lama untuk kelas yang rapornya sudah terbit.
     const computations = await computeReportCards(classGroupId);
 
     const rows = computations.map((c) => ({
