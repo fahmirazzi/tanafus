@@ -260,16 +260,20 @@ export async function POST(
     // dalam transaksi, kelambatan/kegagalan Resend bisa membuat penerbitan
     // yang sudah sah ikut gagal atau timeout karenanya.
     //
-    // BENTUK BATCH, BUKAN LOOP BERURUTAN — ini bukan sekadar optimasi.
-    // Versi sebelumnya menjalankan getStudentAudienceIds → createNotifications
-    // → sendEventEmail satu per satu per murid: kelas 15 murid berarti 30
-    // round-trip database ditambah 15 panggilan jaringan berurutan, di atas
-    // permintaan yang memang sudah panjang. Mode gagalnya yang buruk: bila
-    // fungsi kehabisan waktu DI SINI, transaksinya SUDAH commit — rapor
-    // betul-betul terbit tapi admin melihat kegagalan, lalu percobaan
-    // ulangnya berbenturan 409 dan mendorongnya mengirim confirm: true, yaitu
-    // penerbitan ulang yang tidak pernah ia maksudkan, lengkap dengan baris
-    // AuditLog "republish" palsu dan notifikasi ganda ke orang tua.
+    // KUERI AUDIENS DIBATCH, ISI PESAN TETAP PER MURID — ini bukan sekadar
+    // optimasi. Versi paling awal menjalankan getStudentAudienceIds satu per
+    // satu per murid: kelas 15 murid berarti 15 round-trip database hanya
+    // untuk audiens, di atas permintaan yang memang sudah panjang. Yang
+    // dibatch di bawah adalah KUERI itu (satu parentStudent.findMany untuk
+    // seluruh kelas) dan pengiriman JARINGAN emailnya (per gelombang kecil,
+    // lihat komentar EMAIL_WAVE_SIZE) — bukan badan notifikasinya, yang
+    // sengaja tetap dibuat per murid (lihat "ISI NOTIFIKASI SENGAJA PER
+    // MURID" di bawah). Mode gagal yang tetap dijaga: bila proses ini
+    // kehabisan waktu, transaksinya SUDAH commit — rapor betul-betul terbit
+    // meski admin melihat kegagalan, lalu percobaan ulangnya berbenturan 409
+    // dan mendorongnya mengirim confirm: true, yaitu penerbitan ulang yang
+    // tidak pernah ia maksudkan, lengkap dengan baris AuditLog "republish"
+    // palsu dan notifikasi ganda ke orang tua.
     //
     // Seluruh blok dibungkus SATU try/catch: kegagalan mengabari siapa pun
     // tidak boleh membuat admin mengira PENERBITANNYA gagal, padahal sudah
@@ -277,7 +281,10 @@ export async function POST(
     try {
       const studentIds = results.map((r) => r.studentId);
 
-      // Satu kueri untuk audiens SEKELAS, bukan satu per murid.
+      // Satu kueri untuk audiens SEKELAS, bukan satu per murid — ini bagian
+      // yang memang benar dari batching sebelumnya dan tetap dipertahankan:
+      // yang mahal di sini adalah KUERI-nya, bukan ISI pesannya (lihat
+      // catatan "ISI NOTIFIKASI SENGAJA PER MURID" di bawah).
       const links = await prisma.parentStudent.findMany({
         where: { studentId: { in: studentIds } },
         select: { studentId: true, parentId: true },
@@ -289,37 +296,62 @@ export async function POST(
         else parentsByStudent.set(link.studentId, [link.parentId]);
       }
 
-      // Satu createNotifications untuk seluruh penerima (createMany tunggal;
-      // penerima ganda — wali dengan dua anak sekelas — sudah di-dedup di
-      // dalamnya). Karena satu tulisan hanya punya satu badan pesan, badannya
-      // TINGKAT KELAS dan tidak menyebut nama murid: nama murid tetap
-      // disebutkan di email per murid di bawah, dan halaman progres yang
-      // dituju notifikasi ini memang menampilkan rapor per anak.
-      await createNotifications(prisma, {
-        userIds: [...studentIds, ...links.map((l) => l.parentId)],
-        type: "report_card_published",
-        title: "Rapor periode sudah terbit",
-        body: "Rapor periode sudah bisa dilihat dan diunduh di halaman progres.",
-        data: { classGroupId: id },
-      });
+      // KONKURENSI EMAIL DIBATASI PER GELOMBANG KECIL — bukan satu per satu,
+      // dan bukan pula seluruh kelas sekaligus. Versi sebelumnya menjalankan
+      // Promise.allSettled atas SELURUH murid dalam satu kelas: untuk kelas
+      // 15 murid itu tercatat ~45 permintaan Resend hampir bersamaan (tiap
+      // murid bisa punya beberapa wali), dan sendEventEmail menelan 429
+      // diam-diam sehingga kegagalannya tak pernah terlihat admin. Memproses
+      // 5 murid per gelombang menjaga throughput tanpa membanjiri kuota API.
+      const EMAIL_WAVE_SIZE = 5;
+      for (let i = 0; i < results.length; i += EMAIL_WAVE_SIZE) {
+        const wave = results.slice(i, i + EMAIL_WAVE_SIZE);
+        await Promise.allSettled(
+          wave.map(async (r) => {
+            const audience = [
+              r.studentId,
+              ...(parentsByStudent.get(r.studentId) ?? []),
+            ];
 
-      // Email tetap per murid supaya isinya menyebut nama anak yang
-      // bersangkutan, tapi dikirim BERSAMAAN. allSettled, bukan all: satu
-      // murid yang gagal dikabari tidak boleh membatalkan pengiriman untuk
-      // murid lain di kelas yang sama (sendEventEmail sendiri sudah menelan
-      // galatnya, allSettled adalah jaring kedua bila kelak tidak lagi).
-      await Promise.allSettled(
-        results.map((r) =>
-          sendEventEmail(
-            [r.studentId, ...(parentsByStudent.get(r.studentId) ?? [])],
-            {
+            // ISI NOTIFIKASI SENGAJA PER MURID — JANGAN DIGABUNG lagi jadi
+            // satu createNotifications tingkat kelas. Rapor adalah dokumen
+            // per anak: wali dengan DUA anak di kelas yang sama harus
+            // menerima DUA notifikasi berbeda, masing-masing menyebut nama
+            // anaknya. Gelombang perbaikan sebelumnya sempat menggabungkan
+            // ini jadi satu badan pesan tingkat kelas demi satu panggilan
+            // createNotifications — itu regresi yang terlihat pengguna
+            // (nama murid hilang, wali dua-anak cuma dapat satu notifikasi)
+            // dan sudah dibatalkan di sini. createNotifications dipanggil
+            // sekali per murid karena insert lokalnya murah (createMany
+            // kecil per panggilan); yang mahal — kueri audiens dan
+            // panggilan jaringan email — tetap dibatch di atas dan di
+            // gelombang ini.
+            await createNotifications(prisma, {
+              userIds: audience,
+              type: "report_card_published",
+              title: "Rapor periode sudah terbit",
+              body: `Rapor ${r.studentName} sudah bisa dilihat dan diunduh di halaman progres.`,
+              data: {
+                classGroupId: id,
+                enrollmentId: r.enrollmentId,
+                studentId: r.studentId,
+              },
+            });
+
+            // Email tetap per murid untuk alasan yang sama (nama anak di
+            // badan pesan). sendEventEmail sendiri sudah menelan galatnya
+            // dan tidak pernah throw; allSettled di sini adalah jaring
+            // kedua bila kelak tidak lagi, dan membungkusnya per murid
+            // berarti satu kegagalan (notifikasi maupun email) tidak
+            // menghentikan pemrosesan murid lain dalam gelombang yang sama.
+            await sendEventEmail(audience, {
               subject: "Rapor periode sudah terbit",
               title: "Rapor periode sudah terbit",
               body: `Rapor ${r.studentName} sudah bisa dilihat dan diunduh di halaman progres.`,
-            },
-          ),
-        ),
-      );
+            });
+          }),
+        );
+      }
     } catch (error) {
       console.error(
         JSON.stringify({
