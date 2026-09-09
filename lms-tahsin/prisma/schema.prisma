@@ -395,6 +395,17 @@ model ReportCard {
 
   teacherNote String?
 
+  /// Diisi HANYA ketika catatan guru benar-benar BERUBAH setelah rapor
+  /// terbit. Pembekuan rapor berlaku penuh untuk ANGKA (nilai, kehadiran,
+  /// kelayakan); narasi guru dikecualikan karena ia satu-satunya bagian yang
+  /// murni ditulis manusia — salah ketik di sana tidak boleh permanen,
+  /// sementara penerbitan ulang hanya menghitung ulang angka dan tak pernah
+  /// menawarkan jalan menyuntingnya. Null berarti narasinya masih persis
+  /// seperti saat diterbitkan, sehingga PDF rapor bisa berkata jujur kapan
+  /// teksnya terakhir diperbaiki tanpa menebak dari updatedAt (yang ikut
+  /// berubah pada penerbitan ulang).
+  teacherNoteUpdatedAt DateTime?
+
   status      ReportCardStatus @default(draft)
   publishedAt DateTime?
   publishedBy String?

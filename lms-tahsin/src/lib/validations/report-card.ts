@@ -24,7 +24,10 @@ export const cohortGradesSchema = z.object({
     .min(1, "Tidak ada nilai yang dikirim"),
 });
 
-/** Narasi guru + timpaan nilai akhir pada satu rapor (spec B4 §4.4). */
+/**
+ * Narasi guru + timpaan nilai akhir pada satu rapor DRAFT (spec B4 §4.4).
+ * Rapor yang sudah terbit dinilai publishedReportCardNoteSchema di bawah.
+ */
 export const reportCardPatchSchema = z
   .object({
     teacherNote: z.union([z.string().trim().max(2000), z.literal("")]).optional(),
@@ -51,6 +54,28 @@ export const reportCardPatchSchema = z
       error: "Alasan wajib diisi saat menimpa nilai akhir",
     },
   );
+
+/**
+ * PATCH pada rapor yang SUDAH TERBIT: catatan guru, dan tidak ada yang lain.
+ *
+ * Skema terpisah, bukan reportCardPatchSchema yang dilonggarkan, dan `.strict()`
+ * bukan kelalaian — pembekuan rapor tetap berlaku penuh untuk ANGKA. Kalau
+ * klien mengirim finalGradeOverride/overrideReason ke rapor terbit, permintaan
+ * itu DITOLAK, bukan diterima lalu diam-diam mengabaikan field-nya: guru yang
+ * mengira baru saja mengubah nilai akhir sesudah terbit harus mendengarnya
+ * sekarang, bukan menemukannya sendiri di PDF yang tidak berubah.
+ *
+ * teacherNote WAJIB ada di sini (tidak .optional()): satu-satunya alasan
+ * memanggil PATCH pada rapor terbit adalah memperbaiki narasinya, jadi badan
+ * kosong adalah kesalahan klien, bukan "PATCH parsial yang tak menyentuh apa
+ * pun". String kosong tetap sah — ia berarti MENGHAPUS catatan, dan menghapus
+ * catatan yang keliru adalah persis salah satu perbaikan yang dibolehkan.
+ */
+export const publishedReportCardNoteSchema = z
+  .object({
+    teacherNote: z.union([z.string().trim().max(2000), z.literal("")]),
+  })
+  .strict();
 
 /** Penerbitan ulang menuntut konfirmasi eksplisit (spec B4 §4.4). */
 export const publishReportCardsSchema = z.object({

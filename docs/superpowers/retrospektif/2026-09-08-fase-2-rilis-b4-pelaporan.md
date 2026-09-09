@@ -70,7 +70,15 @@ dengan tangan → `migrate deploy`. Verifikasi dengan membaca balik kolom dari
 
 ## 3. Yang menunggu keputusan pemilik
 
-**a. Narasi guru terkunci selamanya setelah rapor terbit pertama.**
+**a. ~~Narasi guru terkunci selamanya setelah rapor terbit pertama.~~ SELESAI
+2026-09-09.** Pemilik memilih *"sunting narasi + peringatan"*: `PATCH` pada rapor
+terbit kini menerima `teacherNote` saja (payload berangka ditolak, bukan
+diabaikan), setiap suntingan dicatat di `AuditLog` sebagai `teacher_note_edit`
+dan ditandai kolom baru `ReportCard.teacherNoteUpdatedAt`, PDF rapor
+menyatakan tanggal perbaikannya, dan layar guru menjelaskan aturannya sebelum
+maupun sesudah penerbitan. Jalur *unpublish* sengaja tidak diambil. Rinciannya
+di spec B4 §4.4, "Perbaikan catatan guru sesudah terbit". Catatan aslinya
+disimpan di bawah sebagai riwayat keputusan:
 `PATCH /api/report-cards/[id]` menolak rapor `published`, dan tidak ada unpublish.
 Penerbitan ulang menghitung ulang ANGKA tapi tidak menyediakan jalan menyunting
 `teacherNote`. Salah ketik pada narasi tidak bisa diperbaiki sama sekali — padahal

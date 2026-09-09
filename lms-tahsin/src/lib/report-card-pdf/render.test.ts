@@ -22,6 +22,7 @@ const data: ReportCardPdfData = {
   // Aksara Arab dinamis: inilah yang membuat pilihan mesin PDF perlu
   // dibuktikan lewat spike sebelum dikunci (spec B4 §4.6).
   teacherNote: "Alhamdulillah, bacaan سورة البقرة sudah lancar. Target berikutnya سورة آل عمران.",
+  teacherNoteUpdatedAt: null,
   publishedAt: new Date("2026-07-01T03:00:00.000Z"),
 };
 
@@ -66,5 +67,21 @@ describe("renderReportCardPdf", () => {
     // Basmalah selalu dirender dengan fontFamily "Naskh" terlepas dari ada
     // tidaknya catatan guru, jadi font tetap harus ter-embed di sini juga.
     expect(buffer.toString("latin1")).toContain("FontFile2");
+  }, 30_000);
+
+  // Catatan guru boleh diperbaiki sesudah rapor terbit, dan PDF-nya HARUS
+  // mengatakannya. Yang diuji di sini bukan tata letaknya melainkan bahwa
+  // cabang barunya benar-benar dirender: PDF dengan penanda revisi lebih
+  // besar daripada PDF yang sama tanpa penanda. Perbandingan relatif, bukan
+  // ambang absolut, supaya uji ini tidak ikut rapuh terhadap perubahan
+  // subsetting font.
+  it("menyatakan revisi catatan guru ketika narasi diperbaiki sesudah terbit", async () => {
+    const tanpaRevisi = await renderReportCardPdf(data);
+    const denganRevisi = await renderReportCardPdf({
+      ...data,
+      teacherNoteUpdatedAt: new Date("2026-07-04T03:00:00.000Z"),
+    });
+    expect(denganRevisi.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect(denganRevisi.byteLength).toBeGreaterThan(tanpaRevisi.byteLength);
   }, 30_000);
 });

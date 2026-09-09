@@ -19,6 +19,7 @@ const styles = StyleSheet.create({
   cellWide: { flex: 3 },
   cell: { flex: 1, textAlign: "right" },
   note: { marginTop: 6, fontFamily: "Naskh" },
+  noteRevision: { marginTop: 4, fontSize: 8, color: "#666" },
   footer: { marginTop: 24, fontSize: 8, color: "#666" },
 });
 
@@ -99,6 +100,15 @@ export function ReportCardDocument({ data }: { data: ReportCardPdfData }) {
 
         <Text style={styles.sectionTitle}>Catatan guru</Text>
         <Text style={styles.note}>{data.teacherNote ?? "—"}</Text>
+        {/* Angka rapor dibekukan saat terbit, catatan guru masih boleh
+            diperbaiki. Perbaikan itu DINYATAKAN di sini, bukan didiamkan:
+            orang tua yang menyimpan PDF lama harus bisa tahu bahwa yang di
+            tangannya bukan lagi teks terakhir. */}
+        {data.teacherNoteUpdatedAt && (
+          <Text style={styles.noteRevision}>
+            {`Catatan guru diperbaiki ${formatTanggalWIB(data.teacherNoteUpdatedAt)}. Nilai dan kehadiran tidak berubah sejak diterbitkan.`}
+          </Text>
+        )}
 
         <Text style={styles.footer}>
           Diterbitkan {formatTanggalWIB(data.publishedAt)}
