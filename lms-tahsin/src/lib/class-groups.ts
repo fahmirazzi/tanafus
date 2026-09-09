@@ -1,11 +1,30 @@
 import { prisma } from "@/lib/prisma";
 import { SessionStatus, SessionType } from "@/generated/prisma/enums";
 import { isSessionStale } from "@/lib/session-staleness";
+import { ForbiddenError, isAdmin, type SessionUser } from "@/lib/auth-guard";
 
 /**
  * Query pendukung kelas reguler. Menyentuh database, jadi tidak diuji unit —
  * aturannya sendiri ada di class-schedule.ts dan regular-sessions.ts.
  */
+
+/**
+ * Class group hanya boleh disentuh admin atau guru pengampunya (pola yang
+ * sudah dipakai PATCH /api/class-groups/[id]). Dipusatkan di sini karena B4
+ * menambah lima endpoint yang memerlukan penjagaan yang persis sama, dan
+ * lima salinan inline adalah lima kesempatan untuk berbeda.
+ */
+export async function assertCanAccessClassGroup(
+  user: SessionUser,
+  classGroupId: string,
+): Promise<void> {
+  if (isAdmin(user)) return;
+  const group = await prisma.classGroup.findUnique({
+    where: { id: classGroupId },
+    select: { teacherId: true },
+  });
+  if (!group || group.teacherId !== user.id) throw new ForbiddenError();
+}
 
 /**
  * Sesi yang dibatalkan lembaga tapi belum punya sesi pengganti (BR-02.4).

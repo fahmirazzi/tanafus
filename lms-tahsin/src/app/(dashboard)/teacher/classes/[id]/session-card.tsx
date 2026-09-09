@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,9 +26,12 @@ import {
 } from "@/lib/regular-sessions";
 import { SESSION_STATUS_LABEL } from "@/lib/validations/session";
 import { SessionStatus } from "@/generated/prisma/enums";
+import { buildGradePayload, mergeServerGrades, scoresAfterSave } from "./grade-form";
 
 export type LessonOption = { id: string; label: string };
 export type RosterStudent = { studentId: string; fullName: string };
+export type CriterionOption = { id: number; name: string; maxScore: number };
+export type GradeRow = { studentId: string; criterionId: number; score: number };
 
 export type SessionRow = {
   id: string;
@@ -61,6 +64,13 @@ const UNMARKED = "";
 const selectClass =
   "h-9 w-full border-b border-b-input bg-transparent text-sm text-plum-700 outline-none focus-visible:border-b-ring";
 
+/** Bentuk `GradeRow[]` dari server menjadi state `scores` layar (dan sebaliknya, sebagai snapshot pembanding). */
+function gradesToScores(rows: GradeRow[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const g of rows) result[`${g.studentId}:${g.criterionId}`] = String(g.score);
+  return result;
+}
+
 /**
  * Satu sesi kelas reguler: roster dengan penanda kehadiran, pemilih
  * lesson, dan tombol Mulai/Selesai/Batalkan.
@@ -73,10 +83,14 @@ export function SessionCard({
   session,
   roster,
   lessons,
+  criteria,
+  grades,
 }: {
   session: SessionRow;
   roster: RosterStudent[];
   lessons: LessonOption[];
+  criteria: CriterionOption[];
+  grades: GradeRow[];
 }) {
   const router = useRouter();
 
@@ -104,6 +118,161 @@ export function SessionCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Penilaian hanya berlaku untuk sesi yang sudah selesai — endpoint (Task 3)
+  // menolak sesi lain, jadi menampilkan formnya di status lain hanya
+  // memancing galat 422.
+  const canGrade =
+    session.status === SessionStatus.completed ||
+    session.status === SessionStatus.completed_absent;
+
+  const [scores, setScores] = useState<Record<string, string>>(() =>
+    gradesToScores(grades),
+  );
+  // Snapshot `grades` (bukan `scores`!) tepat setelah render/merge terakhir —
+  // dipakai mergeServerGrades() untuk mengenali sel mana yang BERUBAH di
+  // server sejak terakhir kali disinkron, terlepas dari apa yang sedang
+  // diketik guru di `scores`.
+  const previousGrades = useRef<Record<string, string>>(gradesToScores(grades));
+
+  /**
+   * `SessionCard` dirender dengan `key` yang stabil (page.tsx), sehingga
+   * `router.refresh()` — dipicu saveGrades() MAUPUN saveAttendance() di kartu
+   * yang sama — tidak pernah me-remount komponen ini. Tanpa efek ini,
+   * `scores` yang diinisialisasi sekali lewat useState(() => ...) tidak akan
+   * pernah menyerap `grades` yang baru: sel yang dikosongkan guru (lalu
+   * sengaja tidak dikirim oleh buildGradePayload) akan tampak kosong
+   * SELAMANYA walau server masih menyimpan nilai lama.
+   *
+   * useEffect polos yang menimpa `scores` dari `grades` TIDAK dipakai di sini
+   * karena itu juga akan membuang ketikan guru yang belum disimpan saat
+   * refresh dipicu oleh saveAttendance() di kartu yang sama —
+   * mergeServerGrades() membedakan kedua kasus itu.
+   */
+  useEffect(() => {
+    const serverAfter = gradesToScores(grades);
+    // Tangkap nilai ref ke variabel lokal SEBELUM memanggil setScores.
+    // Closure JavaScript dalam updater membaca `.current` saat updater
+    // benar-benar dieksekusi (bukan saat setScores dipanggil), dan jika
+    // baris berikutnya sudah memutasi ref, updater akan melihat nilai baru.
+    // React umumnya menjalankan updater sinkron, tapi mode dev dan efek
+    // tertunda lainnya dapat membuat updater dieksekusi SETELAH mutasi ref,
+    // menyebabkan serverBefore === serverAfter dan kehilangan deteksi sel
+    // yang benar-benar berubah di server.
+    const serverBefore = previousGrades.current;
+    setScores((local) =>
+      mergeServerGrades({ serverBefore, local, serverAfter }),
+    );
+    previousGrades.current = serverAfter;
+    // Sengaja hanya bergantung pada `grades`: `scores` diakses lewat updater
+    // fungsional (`setScores((local) => ...)`) supaya efek ini tidak perlu
+    // (dan tidak boleh) berjalan ulang setiap kali guru mengetik.
+  }, [grades]);
+
+  const [gradeError, setGradeError] = useState<string | null>(null);
+  const [savingGrades, setSavingGrades] = useState(false);
+
+  async function saveGrades() {
+    setSavingGrades(true);
+    setGradeError(null);
+    // Hanya kirim sel yang benar-benar diisi: penilaian tidak wajib, dan sel
+    // kosong berarti "belum dinilai", bukan nol.
+    const payload = buildGradePayload(scores);
+    // Snapshot server ditangkap ke variabel lokal SEBELUM fetch: selagi
+    // request berjalan, useEffect([grades]) (dipicu router.refresh() dari
+    // aksi lain di kartu yang sama) bisa memutasi previousGrades.current.
+    // Hasil simpan ini harus dihitung relatif terhadap keadaan server saat
+    // `payload` dibentuk, bukan terhadap nilai ref apa pun yang kebetulan
+    // ada saat respons tiba.
+    const serverSnapshot = previousGrades.current;
+
+    if (payload.length === 0) {
+      // Semua sel kosong, jadi tidak ada yang bisa dikirim (penghapusan nilai
+      // di luar lingkup B4). Layar tetap WAJIB disinkronkan ulang: kalau guru
+      // mengosongkan satu-satunya sel yang terisi, server masih menyimpan
+      // nilainya, dan tanpa baris ini sel itu tampak kosong sampai halaman
+      // di-reload penuh — persis kelas bug yang jalur sukses di bawah tutup.
+      setScores((local) =>
+        mergeServerGrades({
+          serverBefore: serverSnapshot,
+          local,
+          serverAfter: serverSnapshot,
+        }),
+      );
+      // Pesannya dibedakan: kalau server memang masih menyimpan nilai, "belum
+      // ada nilai yang diisi" menyesatkan — sel barusan dipulihkan di depan
+      // mata guru, jadi yang perlu dijelaskan adalah KENAPA pengosongannya
+      // tidak tersimpan.
+      setGradeError(
+        Object.keys(serverSnapshot).length > 0
+          ? "Nilai tidak bisa dikosongkan lewat layar ini. Sel yang dikosongkan dikembalikan ke nilai yang tersimpan."
+          : "Belum ada nilai yang diisi",
+      );
+      setSavingGrades(false);
+      return;
+    }
+    // fetch/res.json() DIBUNGKUS try/catch/finally: tanpa ini, fetch yang
+    // gagal (jaringan putus) atau res.json() yang melempar (respons bukan
+    // JSON, mis. sesi guru kedaluwarsa) membuat exception keluar SEBELUM
+    // setSavingGrades(false) tercapai — tombol "Simpan nilai" terkunci
+    // "Menyimpan..." selamanya. `finally` memastikan itu selalu tercapai.
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/grades`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ grades: payload }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setGradeError(json?.details?.grades ?? json?.error ?? "Gagal menyimpan nilai");
+        return;
+      }
+      // JANGAN menggantungkan resinkronisasi ke sini pada router.refresh():
+      // mengosongkan sebuah sel lalu menyimpan TIDAK mengubah apa pun di
+      // server (buildGradePayload sengaja tidak mengirim sel kosong), jadi
+      // payload RSC yang diambil ulang oleh refresh() akan identik dengan
+      // sebelumnya — React tidak membuat referensi prop `grades` baru,
+      // useEffect(..., [grades]) di atas tidak pernah menyala, dan sel yang
+      // dikosongkan akan tampak kosong SELAMANYA sampai halaman di-reload
+      // penuh. Sebagai gantinya, hitung `scores` berikutnya SECARA LOKAL:
+      // mulai dari snapshot server terakhir yang diketahui, lalu timpa
+      // dengan apa yang barusan benar-benar tersimpan (payload ini). Sel
+      // yang dikosongkan (tidak ikut di payload) otomatis jatuh kembali ke
+      // nilai server dari snapshot; sel yang baru disimpan menampilkan nilai
+      // barunya.
+      const nextServer = scoresAfterSave({
+        serverSnapshot,
+        savedPayload: payload,
+      });
+      // WAJIB updater fungsional yang dikomposisikan dengan mergeServerGrades,
+      // BUKAN setScores(nextServer) dengan nilai biasa: input tabel sengaja
+      // tidak di-disabled selagi menyimpan, jadi guru bisa mengetik di sel
+      // lain SETELAH `payload` ditangkap. Nilai biasa akan mengganti SELURUH
+      // state dan menghapus ketikan itu diam-diam — tanpa galat, tanpa tanda
+      // apa pun. mergeServerGrades sudah membedakan kedua kasus: sel lokal
+      // yang BERISI dan berbeda dari snapshot saat kirim dianggap sedang
+      // disunting (dipertahankan), sedangkan sel kosong selalu jatuh ke nilai
+      // server sehingga perbaikan bug aslinya tetap berlaku.
+      setScores((local) =>
+        mergeServerGrades({
+          serverBefore: serverSnapshot,
+          local,
+          serverAfter: nextServer,
+        }),
+      );
+      previousGrades.current = nextServer;
+      // Tetap dipanggil untuk kasus lain (mis. guru/admin lain menyunting
+      // data yang sama di tempat lain) — useEffect([grades]) di atas masih
+      // berguna KALAU refresh ini kebetulan membawa referensi `grades` baru
+      // yang benar-benar berbeda. Tidak menghapusnya sengaja: itu bukan
+      // duplikasi, hanya tidak lagi menjadi SATU-SATUNYA jalur resinkronisasi.
+      router.refresh();
+    } catch {
+      setGradeError("Gagal menghubungi server. Coba lagi.");
+    } finally {
+      setSavingGrades(false);
+    }
+  }
 
   const available = REGULAR_ACTIONS.filter((action) =>
     canApplyRegularAction(session.status, action),
@@ -165,19 +334,32 @@ export function SessionCard({
     const marks = changedMarks();
     if (marks.length === 0) return "noop";
 
-    const response = await fetch(`/api/sessions/${session.id}/attendance`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ marks }),
-    });
-    const payload: unknown = await response.json();
+    // fetch/response.json() DIBUNGKUS try/catch: dipakai dua pemanggil
+    // (saveAttendance, submitAction) yang masing-masing men-setBusy(false)
+    // TEPAT SETELAH memanggil fungsi ini — tanpa try/catch, exception dari
+    // fetch yang gagal (jaringan putus) atau response.json() yang melempar
+    // (respons bukan JSON) akan keluar dari sini SEBELUM pemanggil sempat
+    // menjalankan setBusy(false), mengunci tombolnya selamanya. Dengan
+    // menangkapnya di sini dan mengembalikan "failed", kedua pemanggil tetap
+    // menjalankan setBusy(false) seperti biasa.
+    try {
+      const response = await fetch(`/api/sessions/${session.id}/attendance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marks }),
+      });
+      const payload: unknown = await response.json();
 
-    if (!response.ok) {
-      const body = payload as { error?: string };
-      setError(body.error ?? "Gagal menyimpan kehadiran.");
+      if (!response.ok) {
+        const body = payload as { error?: string };
+        setError(body.error ?? "Gagal menyimpan kehadiran.");
+        return "failed";
+      }
+      return "ok";
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
       return "failed";
     }
-    return "ok";
   }
 
   async function saveAttendance(): Promise<void> {
@@ -222,56 +404,67 @@ export function SessionCard({
     setError(null);
     setNotice(null);
 
-    // Menutup kelas menuntut roster lengkap di sisi server (spec §5.3).
-    // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
-    // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
-    if (action === "complete" && roster.length > 0) {
-      // "noop" lolos: roster memang sudah lengkap tersimpan, tidak ada yang
-      // perlu ditulis ulang.
-      if ((await putAttendance()) === "failed") {
-        setBusy(false);
+    // Badan fungsi DIBUNGKUS try/catch/finally: tanpa ini, fetch yang gagal
+    // (jaringan putus) atau response.json() yang melempar (respons bukan
+    // JSON) membuat exception keluar SEBELUM setBusy(false) tercapai —
+    // tombol dialog konfirmasi terkunci "Menyimpan..." selamanya dan dialog
+    // tidak bisa ditutup. `finally` memastikan setBusy(false) SELALU
+    // tercapai apa pun hasilnya.
+    try {
+      // Menutup kelas menuntut roster lengkap di sisi server (spec §5.3).
+      // Tanda yang baru dipilih di layar disimpan lebih dulu supaya guru tidak
+      // tertahan 422 hanya karena lupa menekan "Simpan kehadiran".
+      if (action === "complete" && roster.length > 0) {
+        // "noop" lolos: roster memang sudah lengkap tersimpan, tidak ada yang
+        // perlu ditulis ulang.
+        if ((await putAttendance()) === "failed") {
+          setPending(null);
+          return;
+        }
+      }
+
+      const response = await fetch(`/api/sessions/${session.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          lessonId,
+          ...(action === "cancel_institution"
+            ? { makeupAt: { date: makeupDate, startTime: makeupTime } }
+            : {}),
+        }),
+      });
+      const payload: unknown = await response.json();
+
+      if (!response.ok) {
+        const body = payload as {
+          error?: string;
+          details?: Record<string, string>;
+        };
+        const firstDetail = body.details
+          ? Object.values(body.details)[0]
+          : undefined;
+        setError(firstDetail ?? body.error ?? "Gagal memperbarui status sesi.");
         setPending(null);
         return;
       }
-    }
 
-    const response = await fetch(`/api/sessions/${session.id}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        lessonId,
-        ...(action === "cancel_institution"
-          ? { makeupAt: { date: makeupDate, startTime: makeupTime } }
-          : {}),
-      }),
-    });
-    const payload: unknown = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = payload as {
-        error?: string;
-        details?: Record<string, string>;
-      };
-      const firstDetail = body.details
-        ? Object.values(body.details)[0]
-        : undefined;
-      setError(firstDetail ?? body.error ?? "Gagal memperbarui status sesi.");
+      const data = (
+        payload as { data?: { earning?: { amount: number } | null } }
+      ).data;
       setPending(null);
-      return;
+      setNotice(
+        data?.earning
+          ? `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}". Honor Anda ${formatRupiah(data.earning.amount)}.`
+          : `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}".`,
+      );
+      router.refresh();
+    } catch {
+      setError("Gagal menghubungi server. Coba lagi.");
+      setPending(null);
+    } finally {
+      setBusy(false);
     }
-
-    const data = (
-      payload as { data?: { earning?: { amount: number } | null } }
-    ).data;
-    setPending(null);
-    setNotice(
-      data?.earning
-        ? `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}". Honor Anda ${formatRupiah(data.earning.amount)}.`
-        : `Kelas ditandai "${REGULAR_ACTION_LABEL[action]}".`,
-    );
-    router.refresh();
   }
 
   return (
@@ -349,6 +542,80 @@ export function SessionCard({
             {busy ? "Menyimpan..." : "Simpan kehadiran"}
           </Button>
         </div>
+
+        {canGrade ? (
+          <div className="space-y-2 border-t border-border pt-4">
+            <p className="text-sm font-semibold text-plum-800">Penilaian</p>
+            {roster.length === 0 || criteria.length === 0 ? (
+              <p className="text-sm text-plum-500">
+                {roster.length === 0
+                  ? "Belum ada murid aktif di roster."
+                  : "Belum ada kriteria penilaian untuk kelas reguler."}
+              </p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[480px] text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-plum-500">
+                        <th className="py-2 pr-2 font-medium">Murid</th>
+                        {criteria.map((c) => (
+                          <th key={c.id} className="py-2 px-2 font-medium">
+                            {c.name}
+                            <span className="block text-xs font-normal text-plum-400">
+                              maks {c.maxScore}
+                            </span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roster.map((r) => (
+                        <tr key={r.studentId} className="border-b border-border">
+                          <td className="py-2 pr-2 whitespace-nowrap text-plum-700">
+                            {r.fullName}
+                          </td>
+                          {criteria.map((c) => {
+                            const key = `${r.studentId}:${c.id}`;
+                            return (
+                              <td key={c.id} className="py-2 px-2">
+                                <Input
+                                  aria-label={`${c.name} untuk ${r.fullName}`}
+                                  type="number"
+                                  min={0}
+                                  max={c.maxScore}
+                                  inputMode="decimal"
+                                  value={scores[key] ?? ""}
+                                  onChange={(e) =>
+                                    setScores((prev) => ({
+                                      ...prev,
+                                      [key]: e.target.value,
+                                    }))
+                                  }
+                                  className="w-20"
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <FormAlert message={gradeError} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={savingGrades}
+                  onClick={() => void saveGrades()}
+                >
+                  {savingGrades ? "Menyimpan..." : "Simpan nilai"}
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
 
         {available.length === 0 ? (
           <p className="rounded-md bg-cream-100 px-3 py-2 text-sm text-plum-700">

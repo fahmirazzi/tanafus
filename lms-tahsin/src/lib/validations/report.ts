@@ -32,3 +32,8 @@ export const sessionsReportQuerySchema = z
   });
 
 export type SessionsReportQuery = z.infer<typeof sessionsReportQuerySchema>;
+
+/** Ekspor CSV per class group (spec B4 §4.7). */
+export const classGroupReportQuerySchema = z.object({
+  classGroupId: z.string().uuid("Kelas tidak valid"),
+});

@@ -158,9 +158,19 @@ export default async function AdminClassDetailPage({
               {group.teacher.fullName}
             </p>
           </div>
-          <Badge variant={group.status === "open" ? "default" : "secondary"}>
-            {group.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={group.status === "open" ? "default" : "secondary"}>
+              {group.status}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/admin/classes/${id}/report-cards`} />}
+            >
+              Publikasi rapor
+            </Button>
+          </div>
         </div>
       </div>
 

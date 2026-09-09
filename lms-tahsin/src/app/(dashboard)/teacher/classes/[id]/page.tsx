@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { activeRoster } from "@/lib/class-groups";
 import { formatRupiah } from "@/lib/currency";
 import { formatTanggalJamWIB, toDateInputWIB, toTimeInputWIB } from "@/lib/datetime";
+import { CRITERION_SELECT, REGULAR_CRITERION_SCOPES } from "@/lib/feedback";
 import { RoleName, SessionType } from "@/generated/prisma/enums";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,19 @@ export default async function TeacherClassDetailPage({
     }),
   ]);
 
+  // Penilaian kohort (Task 4, spec B4 §4.3): kriteria yang berlaku untuk
+  // kelas reguler dan nilai yang sudah tersimpan, supaya form pra-terisi
+  // alih-alih memaksa guru mengetik ulang dari nol setiap kali halaman dibuka.
+  const criteria = await prisma.gradeCriterion.findMany({
+    where: { scope: { in: REGULAR_CRITERION_SCOPES } },
+    select: CRITERION_SELECT,
+    orderBy: { id: "asc" },
+  });
+  const grades = await prisma.sessionGrade.findMany({
+    where: { session: { classGroupId: id } },
+    select: { sessionId: true, studentId: true, criterionId: true, score: true },
+  });
+
   const lessons: LessonOption[] = group.course.modules.flatMap((mod) =>
     mod.lessons.map((lesson) => ({
       id: lesson.id,
@@ -105,14 +119,24 @@ export default async function TeacherClassDetailPage({
           Kembali ke kelas saya
         </Button>
 
-        <div className="space-y-1">
-          <h1 className="font-heading text-2xl font-semibold text-plum-800 md:text-3xl">
-            {group.name}
-          </h1>
-          <p className="text-sm text-plum-500">
-            {group.period.name} · Honor {formatRupiah(Number(group.honorPerSession))}
-            /sesi
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="font-heading text-2xl font-semibold text-plum-800 md:text-3xl">
+              {group.name}
+            </h1>
+            <p className="text-sm text-plum-500">
+              {group.period.name} · Honor {formatRupiah(Number(group.honorPerSession))}
+              /sesi
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={<Link href={`/teacher/classes/${id}/report-cards`} />}
+          >
+            Rapor kelas
+          </Button>
         </div>
       </div>
 
@@ -150,6 +174,18 @@ export default async function TeacherClassDetailPage({
               session={session}
               roster={roster}
               lessons={lessons}
+              criteria={criteria.map((c) => ({
+                id: c.id,
+                name: c.name,
+                maxScore: Number(c.maxScore),
+              }))}
+              grades={grades
+                .filter((g) => g.sessionId === session.id)
+                .map((g) => ({
+                  studentId: g.studentId,
+                  criterionId: g.criterionId,
+                  score: Number(g.score),
+                }))}
             />
           ))
         )}
