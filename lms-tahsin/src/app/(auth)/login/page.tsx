@@ -3,7 +3,12 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { LoginForm } from "./login-form";
 
-export const metadata: Metadata = { title: "Masuk" };
+export const metadata: Metadata = {
+  title: "Masuk",
+  // Halaman utilitas: tidak ada nilai pencarian, dan hasil pencarian yang
+  // mendarat di form login membuang klik.
+  robots: { index: false, follow: true },
+};
 
 export default function LoginPage() {
   return (

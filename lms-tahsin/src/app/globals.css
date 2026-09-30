@@ -2,14 +2,20 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/*
+ * Mode gelap mengikuti kelas `.dark` di <html>, dipasang skrip di <head>
+ * (src/lib/tema.ts) sebelum halaman digambar: pilihan pengguna dari tombol
+ * tema, atau pengaturan sistem bila belum pernah memilih.
+ */
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-jakarta);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-heading);
+  --font-heading: var(--font-jakarta);
+  --font-arabic: var(--font-amiri);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -46,123 +52,18 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-}
 
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.147 0.004 49.3);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.147 0.004 49.3);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.147 0.004 49.3);
-  --primary: oklch(0.214 0.009 43.1);
-  --primary-foreground: oklch(0.986 0.002 67.8);
-  --secondary: oklch(0.96 0.002 17.2);
-  --secondary-foreground: oklch(0.214 0.009 43.1);
-  --muted: oklch(0.96 0.002 17.2);
-  --muted-foreground: oklch(0.547 0.021 43.1);
-  --accent: oklch(0.96 0.002 17.2);
-  --accent-foreground: oklch(0.214 0.009 43.1);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0.005 34.3);
-  --input: oklch(0.922 0.005 34.3);
-  --ring: oklch(0.714 0.014 41.2);
-  --chart-1: oklch(0.868 0.007 39.5);
-  --chart-2: oklch(0.547 0.021 43.1);
-  --chart-3: oklch(0.438 0.017 39.3);
-  --chart-4: oklch(0.367 0.016 35.7);
-  --chart-5: oklch(0.268 0.011 36.5);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.986 0.002 67.8);
-  --sidebar-foreground: oklch(0.147 0.004 49.3);
-  --sidebar-primary: oklch(0.214 0.009 43.1);
-  --sidebar-primary-foreground: oklch(0.986 0.002 67.8);
-  --sidebar-accent: oklch(0.96 0.002 17.2);
-  --sidebar-accent-foreground: oklch(0.214 0.009 43.1);
-  --sidebar-border: oklch(0.922 0.005 34.3);
-  --sidebar-ring: oklch(0.714 0.014 41.2);
-}
-
-.dark {
-  --background: oklch(0.147 0.004 49.3);
-  --foreground: oklch(0.986 0.002 67.8);
-  --card: oklch(0.214 0.009 43.1);
-  --card-foreground: oklch(0.986 0.002 67.8);
-  --popover: oklch(0.214 0.009 43.1);
-  --popover-foreground: oklch(0.986 0.002 67.8);
-  --primary: oklch(0.922 0.005 34.3);
-  --primary-foreground: oklch(0.214 0.009 43.1);
-  --secondary: oklch(0.268 0.011 36.5);
-  --secondary-foreground: oklch(0.986 0.002 67.8);
-  --muted: oklch(0.268 0.011 36.5);
-  --muted-foreground: oklch(0.714 0.014 41.2);
-  --accent: oklch(0.268 0.011 36.5);
-  --accent-foreground: oklch(0.986 0.002 67.8);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.547 0.021 43.1);
-  --chart-1: oklch(0.868 0.007 39.5);
-  --chart-2: oklch(0.547 0.021 43.1);
-  --chart-3: oklch(0.438 0.017 39.3);
-  --chart-4: oklch(0.367 0.016 35.7);
-  --chart-5: oklch(0.268 0.011 36.5);
-  --sidebar: oklch(0.214 0.009 43.1);
-  --sidebar-foreground: oklch(0.986 0.002 67.8);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.986 0.002 67.8);
-  --sidebar-accent: oklch(0.268 0.011 36.5);
-  --sidebar-accent-foreground: oklch(0.986 0.002 67.8);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.547 0.021 43.1);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-  html {
-    @apply font-sans;
-  }
-}
-/* ============================================================
-   Brand Tanafus Center — docs/11-brand-guidelines.md
-   Skala plum diturunkan dari teks plum #574B60 = hsl(274 12% 33.5%)
-   (nilai turunan, bukan resmi — ganti di sini bila doc lengkap tersedia)
-   ============================================================ */
-
-:root {
-  --brand-orange-50: #fff4e8;
-  --brand-orange-500: #ff7a00;
-  --brand-orange-600: #e66e00;
-
-  --brand-cream-50: #fbfefb;
-  --brand-cream-100: #efe5dc;
-
-  --brand-plum-50: #f7f5f8;
-  --brand-plum-100: #efecf1;
-  --brand-plum-200: #dcd6e0;
-  --brand-plum-300: #c2b8c9;
-  --brand-plum-400: #9c8da6;
-  --brand-plum-500: #7a6b83;
-  --brand-plum-600: #665a6f;
-  --brand-plum-700: #574b60;
-  --brand-plum-800: #453b4c;
-  --brand-plum-900: #322c38;
-  --brand-plum-950: #201c23;
-}
-
-@theme inline {
+  /*
+   * Nama palet lama (plum, orange, cream) dari brand v1 dipertahankan
+   * sebagai ALIAS, karena dipakai ±560 kali di dashboard. Nilainya kini
+   * palet brand v2 di bawah dan ikut berganti di mode gelap:
+   * plum = skala tinta, orange = merah titik, cream = kertas.
+   */
   --color-orange-50: var(--brand-orange-50);
   --color-orange-500: var(--brand-orange-500);
   --color-orange-600: var(--brand-orange-600);
-
   --color-cream-50: var(--brand-cream-50);
   --color-cream-100: var(--brand-cream-100);
-
   --color-plum-50: var(--brand-plum-50);
   --color-plum-100: var(--brand-plum-100);
   --color-plum-200: var(--brand-plum-200);
@@ -176,38 +77,370 @@
   --color-plum-950: var(--brand-plum-950);
 }
 
-/* Petakan token semantik shadcn ke palet brand (mode terang — MVP). */
+/* ============================================================
+   Brand Tanafus v2 (2026-09-30): kertas, tinta, dan satu merah, merah titik
+   harakat Abu al-Aswad ad-Du'ali. Satu sumber warna untuk seluruh aplikasi:
+   halaman depan (`.ld`), onboarding, auth, dan dashboard.
+   Pasangan teks utama diukur WCAG AA (docs/14-landing-v2.md, pembaruan 11).
+   ============================================================ */
 :root {
-  --background: var(--brand-cream-50);
-  --foreground: var(--brand-plum-700);
+  --tf-kertas: #f4f4f1;
+  --tf-permukaan: #fafaf8;
+  --tf-tinta: #141413;
+  --tf-redup: #5b5b56; /* 6,2:1 di atas kertas */
+  --tf-garis: #dadad5;
+  --tf-isian: #c9c9c3;
+  --tf-lembut: #ebebe6;
+  --tf-merah: #c8261b; /* 5,08:1 dua arah terhadap kertas */
+  --tf-merah-tua: #a81f16;
+  --tf-merah-muda: #f7e4e1;
+  --tf-di-merah: #f4f4f1;
 
-  --card: #ffffff;
-  --card-foreground: var(--brand-plum-700);
-  --popover: #ffffff;
-  --popover-foreground: var(--brand-plum-700);
+  --background: var(--tf-kertas);
+  --foreground: var(--tf-tinta);
+  --card: var(--tf-permukaan);
+  --card-foreground: var(--tf-tinta);
+  --popover: var(--tf-permukaan);
+  --popover-foreground: var(--tf-tinta);
+  --primary: var(--tf-merah);
+  --primary-foreground: var(--tf-di-merah);
+  --secondary: var(--tf-lembut);
+  --secondary-foreground: var(--tf-tinta);
+  --muted: var(--tf-lembut);
+  --muted-foreground: var(--tf-redup);
+  --accent: var(--tf-merah-muda);
+  --accent-foreground: var(--tf-tinta);
+  --destructive: #b42318;
+  --border: var(--tf-garis);
+  --input: var(--tf-isian);
+  --ring: var(--tf-merah);
+  --chart-1: var(--tf-merah);
+  --chart-2: #141413;
+  --chart-3: #5b5b56;
+  --chart-4: #9a9a94;
+  --chart-5: #dadad5;
+  --radius: 0.75rem;
+  --sidebar: var(--tf-permukaan);
+  --sidebar-foreground: var(--tf-tinta);
+  --sidebar-primary: var(--tf-merah);
+  --sidebar-primary-foreground: var(--tf-di-merah);
+  --sidebar-accent: var(--tf-lembut);
+  --sidebar-accent-foreground: var(--tf-tinta);
+  --sidebar-border: var(--tf-garis);
+  --sidebar-ring: var(--tf-merah);
 
-  --primary: var(--brand-orange-500);
-  --primary-foreground: #ffffff;
+  /* Alias palet lama (lihat @theme di atas). */
+  --brand-orange-50: var(--tf-merah-muda);
+  --brand-orange-500: var(--tf-merah);
+  --brand-orange-600: var(--tf-merah-tua);
+  --brand-cream-50: var(--tf-kertas);
+  --brand-cream-100: var(--tf-lembut);
+  --brand-plum-50: #f7f7f5;
+  --brand-plum-100: #ececE8;
+  --brand-plum-200: #dadad5;
+  --brand-plum-300: #c2c2bc;
+  --brand-plum-400: #8a8a84;
+  --brand-plum-500: #5b5b56;
+  --brand-plum-600: #474743;
+  --brand-plum-700: #2c2c2a;
+  --brand-plum-800: #141413;
+  --brand-plum-900: #0e0e0d;
+  --brand-plum-950: #0a0a09;
 
-  --secondary: var(--brand-cream-100);
-  --secondary-foreground: var(--brand-plum-800);
+  color-scheme: light;
+}
 
-  --muted: var(--brand-cream-100);
-  --muted-foreground: var(--brand-plum-500);
+.dark {
+  --tf-kertas: #121211;
+  --tf-permukaan: #1a1a19;
+  --tf-tinta: #ecece8;
+  --tf-redup: #a6a6a0; /* 7,7:1 di atas kertas gelap */
+  --tf-garis: #2a2a28;
+  --tf-isian: #3a3a37;
+  --tf-lembut: #222220;
+  --tf-merah: #ff5a4a; /* 6,1:1 dua arah terhadap kertas gelap */
+  --tf-merah-tua: #ff7b6e;
+  --tf-merah-muda: #2a1614;
+  /* Teks di atas merah terang: gelap, bukan putih (putih hanya 3,1:1). */
+  --tf-di-merah: #121211;
 
-  --accent: var(--brand-orange-50);
-  --accent-foreground: var(--brand-plum-800);
+  --destructive: #ff6b5e;
+  --chart-2: #ecece8;
+  --chart-3: #a6a6a0;
+  --chart-4: #6e6e68;
+  --chart-5: #2f2f2c;
 
-  --border: var(--brand-plum-100);
-  --input: var(--brand-plum-200);
-  --ring: var(--brand-orange-500);
+  /* Skala tinta dibalik: plum-800 (judul) tetap "paling kontras". */
+  --brand-plum-50: #1a1a19;
+  --brand-plum-100: #232321;
+  --brand-plum-200: #2f2f2c;
+  --brand-plum-300: #4a4a46;
+  --brand-plum-400: #7a7a74;
+  --brand-plum-500: #a6a6a0;
+  --brand-plum-600: #bdbdb7;
+  --brand-plum-700: #d6d6d1;
+  --brand-plum-800: #ecece8;
+  --brand-plum-900: #f4f4f1;
+  --brand-plum-950: #fafaf8;
 
-  --sidebar: var(--brand-plum-950);
-  --sidebar-foreground: var(--brand-plum-200);
-  --sidebar-primary: var(--brand-orange-500);
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: var(--brand-plum-900);
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: var(--brand-plum-900);
-  --sidebar-ring: var(--brand-orange-500);
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    background-color: var(--background);
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--tf-merah) 22%, transparent);
+  }
+  /* Judul: huruf sama (Plus Jakarta Sans), dirapatkan seperti halaman depan. */
+  .font-heading,
+  h1,
+  h2 {
+    letter-spacing: -0.025em;
+  }
+}
+
+/*
+ * Pergantian tema: crossfade singkat biasa (tombol-tema.tsx memakai View
+ * Transitions API; browser tanpa dukungan langsung berganti).
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+}
+
+/* ============================================================
+   Halaman publik (beranda, /tentang, /onboarding): token `.ld`.
+   Nilainya sama dengan brand v2 di atas; namanya dipertahankan karena
+   dipakai luas di komponen halaman depan. Brand v1: docs/archive/landing-v1-brand/.
+
+   Merah = merah titik harakat Abu al-Aswad ad-Du'ali. Semua pasangan
+   warna di bawah sudah diukur WCAG AA (lihat docs/14-landing-v2.md).
+   ============================================================ */
+:root,
+.ld {
+  --ld-paper: #f4f4f1;
+  --ld-surface: #fafaf8;
+  --ld-ink: #141413;
+  --ld-muted: #5b5b56;   /* 6,2:1 di atas paper */
+  --ld-line: #dadad5;
+  --ld-red: #c8261b;     /* 5,08:1 dua arah terhadap paper */
+  --ld-on-red: #f4f4f1;
+  /* Kartu label huruf di hero. Terang: putih, garis dan teks Arab merah
+     (5,6:1), teks Latin abu gelap (5,1:1). */
+  --ld-kartu-latar: #ffffff;
+  --ld-kartu-garis: #c8261b;
+  --ld-kartu-arab: #c8261b;
+  --ld-kartu-latin: #6e6e68;
+  color-scheme: light;
+}
+.dark,
+.dark .ld {
+    --ld-paper: #121211;
+    --ld-surface: #1a1a19;
+    --ld-ink: #ecece8;
+    --ld-muted: #a6a6a0; /* 7,7:1 */
+    --ld-line: #2a2a28;
+    --ld-red: #ff5a4a;   /* 6,1:1 dua arah terhadap paper gelap */
+    --ld-on-red: #121211;
+    /* Gelap: teks putih. Di atas merah terang (#ff5a4a) putih hanya 3,1:1,
+       jadi kartu memakai merah brand yang lebih tua: putih 5,6:1, putih
+       pudar untuk teks Latin 4,6:1. */
+    --ld-kartu-latar: #c8261b;
+    --ld-kartu-garis: #c8261b;
+    --ld-kartu-arab: #ffffff;
+    --ld-kartu-latin: #f9e4e1;
+    color-scheme: dark;
+}
+
+/*
+ * Latar di luar halaman (overscroll di ponsel) kini sama untuk seluruh
+ * aplikasi: <html> memakai --background (lihat @layer base), yang bernilai
+ * sama dengan --ld-paper di kedua tema.
+ */
+
+@theme inline {
+  --color-ld-paper: var(--ld-paper);
+  --color-ld-surface: var(--ld-surface);
+  --color-ld-ink: var(--ld-ink);
+  --color-ld-muted: var(--ld-muted);
+  --color-ld-line: var(--ld-line);
+  --color-ld-red: var(--ld-red);
+  --color-ld-on-red: var(--ld-on-red);
+  --color-ld-kartu-latar: var(--ld-kartu-latar);
+  --color-ld-kartu-garis: var(--ld-kartu-garis);
+  --color-ld-kartu-arab: var(--ld-kartu-arab);
+  --color-ld-kartu-latin: var(--ld-kartu-latin);
+  --font-ld-sans: var(--font-jakarta);
+  --font-ld-arabic: var(--font-amiri);
+  --font-ld-decor: var(--font-ruqaa);
+}
+
+/*
+ * Elemen hero disembunyikan sebelum GSAP jalan supaya tidak berkedip
+ * (HTML dari server tampil dulu sebelum hydration). Hanya bila JS aktif dan
+ * pengguna tidak meminta gerak dikurangi. Failsafe: kalau JS gagal dimuat,
+ * animasi CSS memunculkannya sendiri setelah 2,5 detik — timeline hero
+ * GSAP selesai sebelum itu, jadi keduanya tidak pernah berebut.
+ */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  .ld [data-hero] {
+    opacity: 0;
+    animation: ld-failsafe 0s 2.5s forwards;
+  }
+}
+@keyframes ld-failsafe {
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * Penekanan kata (Tekanan, src/components/landing/kerangka.tsx). JS menandai
+ * `data-tekanan-awal` sebelum animasi: kata memakai warna teks sekitarnya.
+ * Saat titik mendarat atribut dilepas dan warna beralih lewat transisi ini.
+ * Tanpa JS atribut tak pernah dipasang, jadi kata langsung berwarna akhir.
+ */
+.ld [data-tekanan] {
+  transition: color 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * Gelombang suara hero: saat huruf baru "dilafalkan", warna titik menjalar
+ * dari batang tengah ke tepi (motion-root.tsx memasang data-berbunyi selama
+ * 1,1 detik). Jeda transisi tiap batang sebanding jaraknya ke tengah
+ * (--jarak, dari page.tsx), jadi merahnya menyebar seperti gelombang bunyi,
+ * lalu surut dengan urutan yang sama. Selektor atribut ini lebih spesifik
+ * dari kelas warna batang.
+ */
+.ld [data-wave] > span {
+  transition: background-color 0.35s ease;
+  transition-delay: calc(var(--jarak, 0) * 16ms);
+}
+.ld [data-wave][data-berbunyi] > span {
+  background-color: var(--ld-red);
+}
+.ld [data-tekanan][data-tekanan-awal] {
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+ * Mikrointeraksi halaman depan
+ * ------------------------------------------------------------------------- */
+
+/*
+ * Tautan teks: garis abu-abu tetap, garis merah menyapu dari kiri saat
+ * disorot dan surut ke kanan saat ditinggal. Dua latar gradien, bukan
+ * text-decoration, karena text-decoration tidak bisa dianimasikan panjangnya.
+ */
+.ld-tautan {
+  --tautan-garis: var(--ld-line);
+  --tautan-aktif: var(--ld-red);
+  background-image:
+    linear-gradient(var(--tautan-aktif), var(--tautan-aktif)),
+    linear-gradient(var(--tautan-garis), var(--tautan-garis));
+  background-size: 0% 2px, 100% 2px;
+  background-position: 100% 100%, 0 100%;
+  background-repeat: no-repeat;
+  padding-bottom: 0.3em;
+  box-decoration-break: clone;
+  transition: background-size 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ld-tautan:hover,
+.ld-tautan:focus-visible {
+  background-size: 100% 2px, 100% 2px;
+  background-position: 0 100%, 0 100%;
+}
+
+/*
+ * Navigasi: dengan JS, transparan tanpa garis di puncak halaman; latar kabur
+ * dan garis bawah muncul setelah digulir. Tanpa JS tetap seperti semula.
+ */
+.ld [data-navigasi] {
+  transition:
+    background-color 0.4s ease,
+    border-color 0.4s ease,
+    backdrop-filter 0.4s ease;
+}
+.ld [data-navigasi][data-pantau]:not([data-tergulir]) {
+  background-color: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+}
+
+/*
+ * Tanya jawab: ikon + berputar menjadi x dan terisi merah saat terbuka.
+ * [data-menutup] dipasang motion-root.tsx selama animasi tutup, supaya ikon
+ * langsung kembali walau <details> baru ditutup setelah animasinya selesai.
+ */
+.ld [data-faq] [data-faq-ikon] {
+  transition:
+    transform 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
+}
+.ld [data-faq] [data-faq-tanya] {
+  transition: color 0.3s ease;
+}
+.ld [data-faq] summary:hover [data-faq-ikon] {
+  border-color: var(--ld-ink);
+}
+.ld [data-faq] summary:hover [data-faq-tanya] {
+  color: var(--ld-red);
+}
+.ld [data-faq][open]:not([data-menutup]) [data-faq-ikon] {
+  transform: rotate(45deg);
+  background-color: var(--ld-red);
+  border-color: var(--ld-red);
+  color: var(--ld-on-red);
+}
+/*
+ * Tombol WhatsApp mengambang: muncul setelah hero terlewati, bersembunyi saat
+ * blok ajakan penutup terlihat (motion-root.tsx memasang data-sembunyi).
+ * visibility ikut disembunyikan agar tidak bisa difokus dengan Tab saat tak
+ * terlihat; jedanya menunggu transisi opacity selesai.
+ */
+.ld [data-mengambang] {
+  transition:
+    opacity 0.35s ease,
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s linear 0s;
+}
+.ld [data-mengambang][data-sembunyi] {
+  opacity: 0;
+  transform: translateY(16px) scale(0.92);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.25s ease,
+    transform 0.3s ease,
+    visibility 0s linear 0.3s;
+}
+/*
+ * Titik pemandu /tentang (titik-pemandu.tsx). Selama titik aktif, halte yang
+ * bergambar (lingkaran pembuka, titik mim, garis fathah, garis bawah kata,
+ * titik kartu nilai) disembunyikan: titik pemandu yang menggantikannya. Tanpa
+ * JS atau saat gerak dikurangi, halte-halte itu tampil diam sebagai ilustrasi.
+ */
+html[data-pemandu-aktif] .ld [data-halte] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ld [data-mengambang],
+  .ld-tautan,
+  .ld [data-navigasi],
+  .ld [data-faq] [data-faq-ikon] {
+    transition: none;
+  }
 }

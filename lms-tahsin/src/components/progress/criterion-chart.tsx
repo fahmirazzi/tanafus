@@ -36,7 +36,7 @@ export function CriterionChart({
             <span
               className={
                 naik
-                  ? "ml-2 text-emerald-700"
+                  ? "ml-2 text-emerald-700 dark:text-emerald-300"
                   : turun
                     ? "ml-2 text-destructive"
                     : "ml-2 text-plum-500"

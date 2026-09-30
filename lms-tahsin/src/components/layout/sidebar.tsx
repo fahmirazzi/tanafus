@@ -34,6 +34,8 @@ import {
 import { cn } from "@/lib/utils";
 import { RoleName } from "@/generated/prisma/enums";
 import { rolesInclude } from "@/lib/roles";
+import { TombolTema } from "@/components/tema/tombol-tema";
+import { Logo } from "@/components/layout/logo";
 
 type NavItem = {
   href: string;
@@ -278,18 +280,17 @@ export function Sidebar({
   return (
     <>
       {/* Topbar mobile */}
-      <header className="flex items-center gap-3 border-b border-border bg-card px-4 py-3 md:hidden">
+      <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur-md md:hidden">
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Buka menu"
-          className="rounded-md p-2 text-plum-700 hover:bg-cream-100"
+          className="rounded-full p-2 text-foreground transition-colors hover:bg-muted active:scale-95"
         >
           <Menu className="size-5" />
         </button>
-        <span className="font-heading text-lg font-semibold text-plum-800">
-          Tanafus
-        </span>
+        <Logo />
+        <TombolTema className="ml-auto" />
       </header>
 
       {open ? (
@@ -297,36 +298,34 @@ export function Sidebar({
           type="button"
           aria-label="Tutup menu"
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-40 bg-plum-950/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] animate-in fade-in-0 md:hidden"
         />
       ) : null}
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-sidebar text-sidebar-foreground transition-transform md:static md:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-0 md:h-dvh md:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
         <div className="flex items-center justify-between px-5 py-5">
           <div>
-            <p className="font-heading text-lg font-semibold text-white">
-              Tanafus Center
-            </p>
-            <p className="text-xs text-plum-400">
-              Membina Bacaan Al-Qur&apos;an
+            <Logo className="text-xl" />
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Berlomba menuju bacaan terbaik.
             </p>
           </div>
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Tutup menu"
-            className="rounded-md p-1 text-plum-300 hover:bg-sidebar-accent md:hidden"
+            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground md:hidden"
           >
             <X className="size-5" />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3">
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-3">
           {items.map((item) => {
             const active = item.href === activeHref;
             return (
@@ -336,18 +335,31 @@ export function Sidebar({
                 onClick={() => setOpen(false)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "group/menu relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-[background-color,color,translate] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
                   active
-                    ? "bg-orange-500 text-white"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-white",
+                    ? "bg-sidebar-accent font-semibold text-foreground"
+                    : "font-medium text-muted-foreground hover:translate-x-0.5 hover:bg-sidebar-accent/60 hover:text-foreground",
                 )}
               >
-                <item.icon className="size-4 shrink-0" />
+                {/* Penanda menu aktif: titik merah brand, muncul memantul. */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute -left-1.5 size-1.5 rounded-full bg-primary transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                    active ? "scale-100" : "scale-0",
+                  )}
+                />
+                <item.icon
+                  className={cn(
+                    "size-4 shrink-0 transition-colors",
+                    active ? "text-primary" : "group-hover/menu:text-foreground",
+                  )}
+                />
                 <span className="flex-1">{item.label}</span>
                 {item.showUnread && unreadCount > 0 ? (
                   <span
                     aria-label={`${unreadCount} belum dibaca`}
-                    className="rounded-full bg-orange-500 px-2 py-0.5 text-xs font-semibold text-white"
+                    className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground"
                   >
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
@@ -358,11 +370,14 @@ export function Sidebar({
         </nav>
 
         <div className="border-t border-sidebar-border px-3 py-4">
-          <p className="truncate px-3 pb-2 text-sm text-plum-200">{userName}</p>
+          <div className="flex items-center gap-2 px-3 pb-2">
+            <p className="flex-1 truncate text-sm font-semibold">{userName}</p>
+            <TombolTema className="hidden md:inline-flex" />
+          </div>
           <button
             type="button"
             onClick={() => void signOut({ callbackUrl: "/login" })}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-plum-200 transition-colors hover:bg-sidebar-accent hover:text-white"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground"
           >
             <LogOut className="size-4 shrink-0" />
             Keluar
