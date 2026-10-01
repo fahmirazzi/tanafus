@@ -60,6 +60,7 @@ export default async function TeacherReportCardsPage({
         enrollmentId: true,
         status: true,
         teacherNote: true,
+        teacherNoteUpdatedAt: true,
         finalGradeOverride: true,
         overrideReason: true,
         publishedAt: true,
@@ -106,6 +107,9 @@ export default async function TeacherReportCardsPage({
       status: row?.status ?? null,
       publishedAt: row?.publishedAt ? row.publishedAt.toISOString() : null,
       teacherNote: row?.teacherNote ?? null,
+      teacherNoteUpdatedAt: row?.teacherNoteUpdatedAt
+        ? row.teacherNoteUpdatedAt.toISOString()
+        : null,
       overrideReason: row?.overrideReason ?? null,
       finalGradeOverride: view.finalGradeOverride,
       attendancePct: view.attendancePct,

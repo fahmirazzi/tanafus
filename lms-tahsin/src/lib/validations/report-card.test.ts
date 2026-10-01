@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { cohortGradesSchema, reportCardPatchSchema } from "@/lib/validations/report-card";
+import {
+  cohortGradesSchema,
+  publishedReportCardNoteSchema,
+  reportCardPatchSchema,
+} from "@/lib/validations/report-card";
 
 describe("reportCardPatchSchema", () => {
   it("meloloskan finalGradeOverride: null sebagai null sungguhan (menghapus timpaan)", () => {
@@ -36,6 +40,41 @@ describe("reportCardPatchSchema", () => {
       // tersentuh, karena PATCH bergantung pada perbedaan undefined vs null.
       expect(parsed.data.finalGradeOverride).toBeUndefined();
     }
+  });
+});
+
+describe("publishedReportCardNoteSchema", () => {
+  it("meloloskan perbaikan catatan guru", () => {
+    const parsed = publishedReportCardNoteSchema.safeParse({
+      teacherNote: "Bacaan sudah lancar.",
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("meloloskan string kosong (menghapus catatan yang keliru)", () => {
+    const parsed = publishedReportCardNoteSchema.safeParse({ teacherNote: "" });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("menolak finalGradeOverride yang ikut dikirim ke rapor terbit", () => {
+    // Inti pelonggarannya: rapor terbit boleh diperbaiki NARASINYA saja.
+    // Payload berangka harus DITOLAK, bukan diterima lalu field-nya
+    // diabaikan diam-diam — guru yang mengira baru mengubah nilai akhir
+    // harus mendengarnya sekarang, bukan menemukannya di PDF yang tak
+    // berubah. Karena itu skema ini .strict().
+    const parsed = publishedReportCardNoteSchema.safeParse({
+      teacherNote: "x",
+      finalGradeOverride: 90,
+      overrideReason: "revisi",
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("menolak badan tanpa teacherNote sama sekali", () => {
+    // Berbeda dari reportCardPatchSchema yang memang parsial: satu-satunya
+    // alasan mem-PATCH rapor terbit adalah memperbaiki narasinya.
+    const parsed = publishedReportCardNoteSchema.safeParse({});
+    expect(parsed.success).toBe(false);
   });
 });
 
