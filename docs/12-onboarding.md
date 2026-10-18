@@ -166,7 +166,13 @@ sendiri:
      atau buatkan admin lewat menu **Pengguna** dan tautkan
      orang tua–anak.
 6. **Kebijakan privasi & persetujuan.** Checkbox persetujuan kebijakan
-   privasi di halaman registrasi (UU PDP) sudah ada. Fitur hapus akun
+   privasi di halaman registrasi (UU PDP) sudah ada dan menautkan ke
+   `/kebijakan-privasi`. Halaman itu berstatus **draf** (tampil spanduk
+   draf, tidak diindeks) sampai semua isian pemilik di
+   `lms-tahsin/src/lib/kebijakan-privasi.ts` diisi: nama badan hukum,
+   alamat, email privasi, petugas pelindungan data, tanggal berlaku, waktu
+   tanggapan, masa simpan, penyedia basis data, dan transfer luar negeri.
+   Minta teksnya ditinjau konsultan hukum sebelum diisi. Fitur hapus akun
    (`POST /api/account/deletion-request`, bisa dibatalkan dengan
    `DELETE` selama masa tenggang) dan export data milik sendiri
    (`GET /api/account/export`) juga sudah ada, memenuhi NFR-6 di
