@@ -15,8 +15,9 @@ import {
  * Isi halaman ini menjelaskan perilaku aplikasi yang SUDAH ada, dan harus
  * ikut diperbarui bila perilakunya berubah:
  * - Data yang dikumpulkan: validations/auth.ts (registrasi), schema.prisma.
- * - Ekspor: /api/account/export + lib/data-export.ts. Hanya data akun yang
- *   sedang masuk; anak tanpa akun sendiri tidak bisa diekspor orang tuanya.
+ * - Ekspor: /api/account/export (akun yang sedang masuk) dan
+ *   /api/account/family-export (anak tertaut, diunduh orang tuanya). Isinya
+ *   dari lib/data-export-loader.ts + lib/data-export.ts.
  * - Hapus akun: lib/account-deletion.ts (tenggang, syarat) dan
  *   lib/account-deletion-executor.ts (apa yang dikosongkan). Permintaan untuk
  *   anak lewat tinjauan admin: /api/account/family-deletion-request.
@@ -143,7 +144,8 @@ export default function KebijakanPrivasiPage() {
               Data anak didaftarkan dan dikelola oleh orang tua atau wali.
             </li>
             <li>
-              Anda bisa mengunduh salinan data Anda kapan saja dari menu{" "}
+              Anda bisa mengunduh salinan data Anda dan anak Anda kapan saja
+              dari menu{" "}
               <strong className="text-ld-ink">Data &amp; akun</strong>.
             </li>
             <li>
@@ -371,10 +373,13 @@ export default function KebijakanPrivasiPage() {
               server kami.
             </p>
             <p className={`mt-4 ${alinea}`}>
-              Tombol itu hanya memuat data akun yang sedang masuk. Untuk
-              salinan data anak, masuklah dengan akun anak bila ia punya akun
-              sendiri, atau kirim permintaan ke{" "}
-              <Isian k="emailPrivasi" />.
+              Orang tua atau wali juga bisa mengunduh salinan data tiap anak
+              yang tertaut dengan akunnya, dari menu yang sama, lewat tombol{" "}
+              <strong className="text-ld-ink">Unduh data</strong> dengan nama
+              anak. Isinya sama: profil, riwayat sesi, nilai, catatan guru,
+              tagihan, dan pembayaran atas nama anak itu. Anak yang tidak punya
+              kata sandi tidak perlu masuk sendiri. Data anak keluarga lain
+              tidak bisa diunduh.
             </p>
 
             <h3 className={subjudul}>Memperbaiki data</h3>
