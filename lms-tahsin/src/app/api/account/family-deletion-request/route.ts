@@ -2,7 +2,11 @@ import type { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
-import { assertCanAccess, handleApiError, requireAuth } from "@/lib/auth-guard";
+import {
+  assertStudentOrGuardian,
+  handleApiError,
+  requireAuth,
+} from "@/lib/auth-guard";
 import { DELETION_STATUS, canCancelDeletionRequest } from "@/lib/account-deletion";
 import {
   activeRequestFor,
@@ -18,10 +22,24 @@ export const dynamic = "force-dynamic";
  * Sengaja terpisah dari /api/account/deletion-request. Endpoint mandiri itu
  * tidak menerima id sama sekali, sehingga tidak punya permukaan IDOR; memaksa
  * jalur orang tua masuk ke sana akan merusak sifat itu. Di sini id memang
- * diperlukan, jadi kepemilikannya dicek lewat assertCanAccess — dan yang
- * dibuat HANYALAH permintaan berstatus `awaiting_admin`, bukan penghapusan.
- * Cron eksekusi hanya menyapu `pending`, jadi tidak ada jalan bagi orang tua
- * untuk menganonimkan akun siapa pun tanpa admin menyetujuinya lebih dulu.
+ * diperlukan, jadi kepemilikannya dicek lewat assertStudentOrGuardian — dan
+ * yang dibuat HANYALAH permintaan berstatus `awaiting_admin`, bukan
+ * penghapusan. Cron eksekusi hanya menyapu `pending`, jadi tidak ada jalan
+ * bagi orang tua untuk menganonimkan akun siapa pun tanpa admin
+ * menyetujuinya lebih dulu.
+ *
+ * BUKAN assertCanAccess: cabang guru di sana meloloskan guru yang mengajar
+ * murid itu, sehingga guru bisa mengajukan penghapusan akun muridnya atau
+ * membatalkan permintaan orang tua. Mengajukan dan menarik permintaan hapus
+ * adalah hak data keluarga, bukan urusan guru — akun yang berperan guru
+ * sekaligus orang tua pun hanya lolos untuk anaknya sendiri.
+ *
+ * Admin juga TIDAK lewat sini. Admin memutuskan lewat
+ * /api/deletion-requests/[id]/review (setujui atau tolak); kalau admin boleh
+ * mengajukan `awaiting_admin` di sini, ia bisa mengajukan lalu menyetujui
+ * sendiri, dan pemisahan "orang tua mengajukan, admin memutuskan" hilang.
+ * Akun sendiri (studentId === user.id) dialihkan ke
+ * /api/account/deletion-request, jadi yang tersisa hanya wali yang tertaut.
  */
 
 const targetSchema = z.object({
@@ -58,16 +76,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     const { studentId } = parsed.data;
 
-    // WAJIB (NFR-2, IDOR): hanya wali yang tertaut — atau admin — boleh
-    // mengajukan atas nama murid ini.
-    await assertCanAccess(user, { kind: "student", studentId });
-
     if (studentId === user.id) {
       return apiError(
         "Untuk akun Anda sendiri, pakai tombol hapus akun saya.",
         422,
       );
     }
+
+    // WAJIB (NFR-2, IDOR): hanya wali yang tertaut boleh mengajukan atas nama
+    // murid ini. Lihat komentar berkas untuk alasan tidak memakai
+    // assertCanAccess.
+    await assertStudentOrGuardian(user, studentId);
 
     // Akun yang sudah dianonimkan tidak bisa diajukan lagi. UI memang sudah
     // menyembunyikannya, tapi endpoint tidak boleh bergantung pada UI.
@@ -118,7 +137,16 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
     if (!studentId) {
       return apiError("Murid tidak disebutkan", 422);
     }
-    await assertCanAccess(user, { kind: "student", studentId });
+    if (studentId === user.id) {
+      return apiError(
+        "Untuk akun Anda sendiri, pakai tombol hapus akun saya.",
+        422,
+      );
+    }
+
+    // WAJIB (NFR-2, IDOR): sama dengan POST — hanya wali yang tertaut boleh
+    // menarik permintaan atas nama murid ini.
+    await assertStudentOrGuardian(user, studentId);
 
     const existing = await activeRequestFor(studentId);
     if (!existing || !canCancelDeletionRequest(existing.status)) {
