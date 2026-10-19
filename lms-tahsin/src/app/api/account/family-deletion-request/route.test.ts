@@ -134,13 +134,21 @@ describe("POST /api/account/family-deletion-request", () => {
     expectNoWrite();
   });
 
-  it("menolak admin, yang memutuskan lewat jalur review (403)", async () => {
+  it("meloloskan admin, walau tidak tertaut dengan murid itu (201)", async () => {
     loginAs(admin, ["admin"]);
 
     const res = await POST(postRequest(childA));
 
-    expect(res.status).toBe(403);
-    expectNoWrite();
+    expect(res.status).toBe(201);
+    expect(db.accountDeletionRequest.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          userId: childA,
+          requestedBy: admin,
+          status: "awaiting_admin",
+        },
+      }),
+    );
   });
 
   it("membuat permintaan awaiting_admin untuk wali yang tertaut (201)", async () => {
@@ -219,13 +227,16 @@ describe("DELETE /api/account/family-deletion-request", () => {
     expectNoWrite();
   });
 
-  it("menolak admin, yang menolak permintaan lewat jalur review (403)", async () => {
+  it("meloloskan admin, walau tidak tertaut dengan murid itu (200)", async () => {
     loginAs(admin, ["admin"]);
 
     const res = await DELETE(deleteRequest(childA));
 
-    expect(res.status).toBe(403);
-    expectNoWrite();
+    expect(res.status).toBe(200);
+    expect(db.accountDeletionRequest.update).toHaveBeenCalledWith({
+      where: { id: "req-1" },
+      data: { status: "cancelled" },
+    });
   });
 
   it("membatalkan permintaan untuk wali yang tertaut (200)", async () => {

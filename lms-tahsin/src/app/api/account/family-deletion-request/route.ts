@@ -5,6 +5,7 @@ import { apiError, apiOk, zodFieldErrors } from "@/lib/api";
 import {
   assertStudentOrGuardian,
   handleApiError,
+  isAdmin,
   requireAuth,
 } from "@/lib/auth-guard";
 import { DELETION_STATUS, canCancelDeletionRequest } from "@/lib/account-deletion";
@@ -34,12 +35,13 @@ export const dynamic = "force-dynamic";
  * adalah hak data keluarga, bukan urusan guru — akun yang berperan guru
  * sekaligus orang tua pun hanya lolos untuk anaknya sendiri.
  *
- * Admin juga TIDAK lewat sini. Admin memutuskan lewat
- * /api/deletion-requests/[id]/review (setujui atau tolak); kalau admin boleh
- * mengajukan `awaiting_admin` di sini, ia bisa mengajukan lalu menyetujui
- * sendiri, dan pemisahan "orang tua mengajukan, admin memutuskan" hilang.
- * Akun sendiri (studentId === user.id) dialihkan ke
- * /api/account/deletion-request, jadi yang tersisa hanya wali yang tertaut.
+ * Admin tetap boleh lewat sini, lewat cabang isAdmin yang EKSPLISIT di
+ * setiap handler. Cabang itu sengaja tidak disembunyikan di helper: dengan
+ * begitu jelas bahwa yang lolos hanya dua pihak, yaitu admin dan wali yang
+ * tertaut. Permintaan dari admin tetap berstatus `awaiting_admin` dan harus
+ * diputuskan lewat /api/deletion-requests/[id]/review seperti permintaan
+ * lainnya. Akun sendiri (studentId === user.id) dialihkan ke
+ * /api/account/deletion-request.
  */
 
 const targetSchema = z.object({
@@ -83,10 +85,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // WAJIB (NFR-2, IDOR): hanya wali yang tertaut boleh mengajukan atas nama
-    // murid ini. Lihat komentar berkas untuk alasan tidak memakai
-    // assertCanAccess.
-    await assertStudentOrGuardian(user, studentId);
+    // WAJIB (NFR-2, IDOR): hanya admin atau wali yang tertaut boleh
+    // mengajukan atas nama murid ini. Lihat komentar berkas untuk alasan tidak
+    // memakai assertCanAccess.
+    if (!isAdmin(user)) {
+      await assertStudentOrGuardian(user, studentId);
+    }
 
     // Akun yang sudah dianonimkan tidak bisa diajukan lagi. UI memang sudah
     // menyembunyikannya, tapi endpoint tidak boleh bergantung pada UI.
@@ -144,9 +148,11 @@ export async function DELETE(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // WAJIB (NFR-2, IDOR): sama dengan POST — hanya wali yang tertaut boleh
-    // menarik permintaan atas nama murid ini.
-    await assertStudentOrGuardian(user, studentId);
+    // WAJIB (NFR-2, IDOR): sama dengan POST — hanya admin atau wali yang
+    // tertaut boleh menarik permintaan atas nama murid ini.
+    if (!isAdmin(user)) {
+      await assertStudentOrGuardian(user, studentId);
+    }
 
     const existing = await activeRequestFor(studentId);
     if (!existing || !canCancelDeletionRequest(existing.status)) {
