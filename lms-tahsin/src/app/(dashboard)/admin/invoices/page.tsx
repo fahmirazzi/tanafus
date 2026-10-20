@@ -185,7 +185,7 @@ export default async function AdminInvoicesPage({ searchParams }: PageProps) {
                   className={cn(
                     "rounded-md px-3 py-1.5 text-sm transition-colors",
                     active
-                      ? "bg-orange-500 text-white"
+                      ? "bg-orange-500 text-primary-foreground"
                       : "bg-cream-100 text-plum-700 hover:bg-cream-100/70",
                   )}
                 >

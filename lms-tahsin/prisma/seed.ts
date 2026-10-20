@@ -9,7 +9,13 @@ import {
 
 const prisma = new PrismaClient();
 
-const SEED_PASSWORD = "password123";
+/**
+ * Kata sandi akun demo. Default di bawah HANYA untuk demo lokal: nilainya
+ * tertulis di repo publik, jadi akun hasil seed ini tidak boleh pernah
+ * hidup di basis data yang bisa dijangkau dari internet. Untuk lingkungan
+ * selain lokal, setel SEED_PASSWORD di environment sebelum menjalankan seed.
+ */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "password123";
 const BCRYPT_ROUNDS = 10;
 
 async function main(): Promise<void> {

@@ -11,8 +11,9 @@ npm run dev
 ```
 
 `db:seed` membuat sembilan akun demo (semua memakai kata sandi
-`password123`), tiga tarif privat, empat kriteria rubrik penilaian, dan
-tiga pasangan guru–murid lengkap dengan jadwal berulang:
+`password123` — lihat peringatan di bawah), tiga tarif privat, empat
+kriteria rubrik penilaian, dan tiga pasangan guru–murid lengkap dengan
+jadwal berulang:
 
 | Email | Peran | Catatan |
 |---|---|---|
@@ -23,6 +24,17 @@ tiga pasangan guru–murid lengkap dengan jadwal berulang:
 | ortu1@tanafus.test | Orang tua | Ayah dari Fatimah & Yusuf Hasan |
 | ortu2@tanafus.test | Orang tua | Ibu dari Maryam Aminah |
 | murid1/2/3@tanafus.test | Murid | Login sendiri, melihat data milik sendiri |
+
+> **Kata sandi di atas HANYA untuk demo lokal.** Nilainya tertulis di repo
+> publik ini, sehingga siapa pun yang membaca dokumentasi bisa memakainya.
+> Jangan pernah menjalankan seed ini apa adanya pada basis data yang bisa
+> dijangkau dari internet. Untuk lingkungan selain lokal, setel
+> `SEED_PASSWORD` di environment lebih dulu — `prisma/seed.ts` membacanya
+> dan hanya jatuh ke default bila variabel itu kosong.
+>
+> Akun demo pada deployment produksi sempat memakai kata sandi default ini
+> dan **sudah dirotasi 2026-09-21**. Nilai barunya sengaja tidak disimpan di
+> repo.
 
 Seed TIDAK membuat sesi konkret — itu tugas generator (roadmap item 11),
 supaya satu jalur kode yang sama dipakai baik untuk data demo maupun
@@ -154,10 +166,18 @@ sendiri:
      atau buatkan admin lewat menu **Pengguna** dan tautkan
      orang tua–anak.
 6. **Kebijakan privasi & persetujuan.** Checkbox persetujuan kebijakan
-   privasi di halaman registrasi (UU PDP) sudah ada. Fitur hapus akun
+   privasi di halaman registrasi (UU PDP) sudah ada dan menautkan ke
+   `/kebijakan-privasi`. Halaman itu berstatus **draf** (tampil spanduk
+   draf, tidak diindeks) sampai semua isian pemilik di
+   `lms-tahsin/src/lib/kebijakan-privasi.ts` diisi: nama badan hukum,
+   alamat, email privasi, petugas pelindungan data, tanggal berlaku, waktu
+   tanggapan, masa simpan, penyedia basis data, dan transfer luar negeri.
+   Minta teksnya ditinjau konsultan hukum sebelum diisi. Fitur hapus akun
    (`POST /api/account/deletion-request`, bisa dibatalkan dengan
-   `DELETE` selama masa tenggang) dan export data milik sendiri
-   (`GET /api/account/export`) juga sudah ada, memenuhi NFR-6 di
+   `DELETE` selama masa tenggang), export data milik sendiri
+   (`GET /api/account/export`), dan export data anak oleh orang tua yang
+   tertaut (`GET /api/account/family-export?studentId=...`) juga sudah
+   ada, memenuhi NFR-6 di
    `docs/09-non-functional.md`. Penghapusan BUKAN hard delete —
    akunnya dianonimkan (nama, email, telepon, dll dikosongkan) 7 hari
    setelah diajukan, supaya jejak keuangan (invoice, charge, earning,

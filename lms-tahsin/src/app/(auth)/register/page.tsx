@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { RegisterForm } from "./register-form";
 
-export const metadata: Metadata = { title: "Daftar" };
+export const metadata: Metadata = {
+  title: "Daftar",
+  robots: { index: false, follow: true },
+};
 
 export default function RegisterPage() {
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -343,8 +344,19 @@ export function RegisterForm() {
           htmlFor="agreePrivacy"
           className="text-sm font-normal text-plum-600"
         >
-          Saya menyetujui kebijakan privasi Tanafus Center dan pengelolaan data
-          anak saya sesuai UU PDP.
+          {/* Tab baru: membuka kebijakan tidak boleh menghapus isian form. */}
+          <span>
+            Saya menyetujui{" "}
+            <Link
+              href="/kebijakan-privasi"
+              target="_blank"
+              rel="noopener"
+              className="font-medium text-orange-600 underline underline-offset-2"
+            >
+              kebijakan privasi Tanafus Center
+            </Link>{" "}
+            dan pengelolaan data anak saya sesuai UU PDP.
+          </span>
         </Label>
       </div>
       <FieldError id="agreePrivacy-error" message={errors.agreePrivacy} />

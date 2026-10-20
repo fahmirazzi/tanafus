@@ -52,14 +52,14 @@ function GateRow({
     <div
       className={
         empty
-          ? "rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2"
+          ? "rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/40 dark:bg-emerald-500/10"
           : "rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
       }
     >
       <p
         className={
           empty
-            ? "text-sm font-semibold text-emerald-700"
+            ? "text-sm font-semibold text-emerald-700 dark:text-emerald-300"
             : "text-sm font-semibold text-destructive"
         }
       >
@@ -253,7 +253,7 @@ export default async function AdminReportCardsPage({
       </Card>
 
       {studentsWithoutScores.length > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
           <p className="font-semibold">
             Murid tanpa nilai (bukan penghalang, tetap masuk rapor):
           </p>

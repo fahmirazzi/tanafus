@@ -110,6 +110,6 @@ riwayat sesi, invoices, notifications, daftar murid.
 - [ ] Webhook Midtrans dites dengan signature invalid → ditolak
 - [ ] Timezone dites: buat sesi, cek tampilan tetap WIB
 - [ ] Mobile check di perangkat beneran (bukan hanya DevTools)
-- [ ] Halaman kebijakan privasi + checkbox persetujuan
+- [ ] Halaman kebijakan privasi + checkbox persetujuan (halaman `/kebijakan-privasi` dan tautannya sudah ada; masih draf sampai isian pemilik di `lms-tahsin/src/lib/kebijakan-privasi.ts` lengkap dan teksnya ditinjau)
 - [ ] Fitur hapus akun / export data tersedia
 - [ ] Seed data jalan di environment fresh
