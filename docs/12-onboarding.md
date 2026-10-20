@@ -174,8 +174,10 @@ sendiri:
    tanggapan, masa simpan, penyedia basis data, dan transfer luar negeri.
    Minta teksnya ditinjau konsultan hukum sebelum diisi. Fitur hapus akun
    (`POST /api/account/deletion-request`, bisa dibatalkan dengan
-   `DELETE` selama masa tenggang) dan export data milik sendiri
-   (`GET /api/account/export`) juga sudah ada, memenuhi NFR-6 di
+   `DELETE` selama masa tenggang), export data milik sendiri
+   (`GET /api/account/export`), dan export data anak oleh orang tua yang
+   tertaut (`GET /api/account/family-export?studentId=...`) juga sudah
+   ada, memenuhi NFR-6 di
    `docs/09-non-functional.md`. Penghapusan BUKAN hard delete —
    akunnya dianonimkan (nama, email, telepon, dll dikosongkan) 7 hari
    setelah diajukan, supaya jejak keuangan (invoice, charge, earning,

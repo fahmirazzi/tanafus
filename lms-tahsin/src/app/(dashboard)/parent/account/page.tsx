@@ -14,7 +14,8 @@ export const metadata: Metadata = { title: "Data & Akun Saya" };
  *
  * Endpoint ekspor dan hapus akun sudah ada sejak Rilis A; halaman inilah yang
  * membuat keduanya benar-benar bisa dipakai keluarga sendiri, bukan hanya
- * lewat permintaan manual ke admin.
+ * lewat permintaan manual ke admin. Ekspor dan hapus akun anak masing-masing
+ * punya endpoint sendiri yang menerima studentId dan memeriksa tautannya.
  */
 export default async function ParentAccountPage() {
   const user = await requireRole(RoleName.parent, RoleName.student);
@@ -62,6 +63,29 @@ export default async function ParentAccountPage() {
           <ExportDataButton />
         </CardContent>
       </Card>
+
+      {children.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Unduh data anak</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-plum-600">
+              Satu berkas JSON per anak, dengan isi yang sama: profil, riwayat
+              sesi, nilai, catatan guru, tagihan, dan pembayaran atas nama
+              anak. Anak yang tidak punya kata sandi tidak bisa masuk sendiri,
+              jadi salinannya diunduh dari sini.
+            </p>
+            <ul className="space-y-3">
+              {children.map((child) => (
+                <li key={child.id}>
+                  <ExportDataButton child={child} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
