@@ -9,7 +9,7 @@ import { TombolTema } from "@/components/tema/tombol-tema";
 export { tautan, WHATSAPP_MESSAGE, whatsappHref };
 
 /**
- * Kerangka bersama halaman publik (beranda dan /tentang): navigasi, footer,
+ * Kerangka bersama halaman publik (beranda, /tentang, /kebijakan-privasi): navigasi, footer,
  * tombol ajakan, dan penekanan kata. Satu sumber agar kedua halaman tidak
  * bisa menyimpang.
  *
@@ -248,12 +248,15 @@ function Kaki() {
         </span>
         {MOTTO}
       </p>
-      <div className="flex gap-7">
+      <div className="flex flex-wrap gap-x-7 gap-y-3">
         <Link href="/tentang" className={tautan}>
           Tentang
         </Link>
         <Link href="/instructors" className={tautan}>
           Guru privat
+        </Link>
+        <Link href="/kebijakan-privasi" className={tautan}>
+          Kebijakan privasi
         </Link>
         <Link href="/login" className={tautan}>
           Masuk

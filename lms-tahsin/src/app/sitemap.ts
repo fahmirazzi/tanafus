@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
 import { PUBLIC_TEACHER_WHERE } from "@/lib/teachers";
 import { getSiteUrl } from "@/lib/site-url";
+import { kebijakanMasihDraf } from "@/lib/kebijakan-privasi";
 
 /**
  * Hanya halaman publik. Halaman di balik login sengaja tidak dimasukkan —
@@ -20,6 +21,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${siteUrl}/`, changeFrequency: "monthly", priority: 1 },
     { url: `${siteUrl}/instructors`, changeFrequency: "weekly", priority: 0.8 },
     { url: `${siteUrl}/tentang`, changeFrequency: "yearly", priority: 0.5 },
+    // Selama masih draf, halamannya noindex; jangan disodorkan ke crawler.
+    ...(kebijakanMasihDraf()
+      ? []
+      : [
+          {
+            url: `${siteUrl}/kebijakan-privasi`,
+            changeFrequency: "yearly" as const,
+            priority: 0.3,
+          },
+        ]),
   ];
 
   try {
