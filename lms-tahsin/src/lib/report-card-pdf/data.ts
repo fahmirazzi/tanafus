@@ -23,5 +23,7 @@ export type ReportCardPdfData = {
   finalGrade: number | null;
   scores: ReportCardPdfScore[];
   teacherNote: string | null;
+  /** Diisi hanya bila narasi diperbaiki SESUDAH rapor terbit. */
+  teacherNoteUpdatedAt: Date | null;
   publishedAt: Date;
 };

@@ -20,10 +20,16 @@ type RouteContext = { params: Promise<{ id: string }> };
  *
  * Seluruh draft dihitung ulang lalu dibekukan dalam SATU transaksi: tidak
  * ada kelas yang separuh terbit. Setelah beku, mengoreksi nilai atau
- * kehadiran di belakangnya TIDAK mengubah rapor sama sekali (GET
- * /report-cards membaca kolom yang dibekukan, PATCH menolak rapor
- * published) — satu-satunya jalan mengubahnya adalah menerbitkan ulang
- * lewat endpoint ini dengan confirm eksplisit, dan itu tercatat di AuditLog.
+ * kehadiran di belakangnya TIDAK mengubah ANGKA rapor sama sekali (GET
+ * /report-cards membaca kolom yang dibekukan, PATCH menolak payload berangka
+ * pada rapor published) — satu-satunya jalan mengubah angkanya adalah
+ * menerbitkan ulang lewat endpoint ini dengan confirm eksplisit, dan itu
+ * tercatat di AuditLog.
+ *
+ * SATU pengecualian, sengaja: catatan guru masih bisa diperbaiki sesudah
+ * terbit lewat PATCH /report-cards/[id] — lihat blok alasan di berkas itu.
+ * Suntingannya juga tercatat di AuditLog dan ditandai teacherNoteUpdatedAt,
+ * yang penerbitan di bawah kembalikan ke null setiap kali ia menerbitkan.
  */
 export async function POST(
   req: NextRequest,
@@ -139,16 +145,25 @@ export async function POST(
     // akan ditolak 409 alih-alih diam-diam menerbitkan ulang.
     //
     // LINGKUP pola ini, dan siapa yang menjaga sisanya: lock di sini adalah
-    // wasit balapan ANTAR permintaan endpoint INI. Penulis rapor yang lain —
-    // POST /api/class-groups/[id]/report-cards (penyusun draft) dan PATCH
-    // /api/report-cards/[id] (narasi & timpaan nilai) — TIDAK bergantung
-    // pada lock ini: keduanya memakai tulisan BERSYARAT
+    // wasit balapan ANTAR permintaan endpoint INI. Penulis ANGKA rapor yang
+    // lain — POST /api/class-groups/[id]/report-cards (penyusun draft) dan
+    // jalur draft PATCH /api/report-cards/[id] (narasi & timpaan nilai) —
+    // TIDAK bergantung pada lock ini: keduanya memakai tulisan BERSYARAT
     // `status: { not: published }` dalam satu pernyataan, sehingga Postgres
     // mengevaluasi ulang syaratnya terhadap versi baris terbaru begitu lock
     // kita terlepas (EvalPlanQual) dan tidak menulis apa pun ke rapor yang
-    // sementara itu menjadi terbit. Jadi invarian "rapor terbit hanya berubah
-    // lewat penerbitan ulang" ditegakkan di TIGA berkas sekaligus, bukan
-    // hanya di sini.
+    // sementara itu menjadi terbit. Jadi invarian "ANGKA rapor terbit hanya
+    // berubah lewat penerbitan ulang" ditegakkan di TIGA berkas sekaligus,
+    // bukan hanya di sini.
+    //
+    // PENULIS KEEMPAT, dan satu-satunya yang memang menulis ke baris terbit:
+    // patchPublishedNote di PATCH /api/report-cards/[id]. Ia menyentuh
+    // teacherNote + teacherNoteUpdatedAt saja, tidak satu pun kolom angka,
+    // jadi ia tidak bisa merusak pembekuan sekalipun ia berbalapan dengan
+    // penerbitan ulang. Ia memakai row lock — pola yang sama dengan di sini,
+    // bukan tulisan bersyarat — karena yang ia jaga berbeda: kejujuran
+    // penanda "diperbarui", yang menuntut perbandingan teks lama/baru
+    // dilakukan atas versi baris terbaru. Alasan lengkapnya ada di berkas itu.
     //
     // Konsekuensinya untuk pembaca berikutnya: perlindungan di berkas mana
     // pun dari ketiganya tidak boleh dilepas dengan alasan "toh yang lain
@@ -197,6 +212,16 @@ export async function POST(
             status: ReportCardStatus.published,
             publishedAt,
             publishedBy: user.id,
+            // teacherNoteUpdatedAt berarti "narasinya diperbaiki SESUDAH
+            // penerbitan terakhir", jadi penerbitan (dan penerbitan ulang)
+            // mengembalikannya ke null: teks yang ada sekarang adalah teks
+            // yang baru saja diterbitkan, bukan revisi atasnya. Tanpa ini,
+            // rapor yang diterbitkan ulang hari ini akan tetap berkata
+            // "catatan diperbarui" dengan tanggal dari sebelum penerbitan
+            // itu — penanda yang menyesatkan, bukan sekadar usang.
+            // teacherNote sendiri sengaja TIDAK disentuh: penerbitan ulang
+            // menghitung ulang angka, ia tidak mengarang ulang kalimat guru.
+            teacherNoteUpdatedAt: null,
           },
         });
 

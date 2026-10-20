@@ -38,6 +38,7 @@ export async function GET(
         finalGradeComputed: true,
         finalGradeOverride: true,
         teacherNote: true,
+        teacherNoteUpdatedAt: true,
         publishedAt: true,
         scores: {
           select: {
@@ -110,6 +111,7 @@ export async function GET(
         sessionsScored: s.sessionsScored,
       })),
       teacherNote: card.teacherNote,
+      teacherNoteUpdatedAt: card.teacherNoteUpdatedAt,
       // publishedAt tidak pernah null pada status published (invariant
       // penerbitan), tapi kolomnya nullable di skema — fallback ini murni
       // untuk memuaskan tipe, bukan jalur yang diharapkan terpakai.

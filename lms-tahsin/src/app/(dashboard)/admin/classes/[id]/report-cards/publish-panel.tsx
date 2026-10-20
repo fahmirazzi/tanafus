@@ -268,8 +268,11 @@ export function PublishPanel({
           </Button>
         </div>
         <p className="text-xs text-plum-500">
-          Rapor yang sudah terbit tidak ikut disegarkan — hanya penerbitan
-          ulang yang boleh mengubahnya.
+          Angka rapor yang sudah terbit tidak ikut disegarkan — hanya
+          penerbitan ulang yang boleh mengubahnya. Catatan guru dikecualikan:
+          guru kelas masih bisa memperbaikinya lewat layar rapornya sendiri,
+          dan perbaikan itu tercatat di jejak audit serta ditandai tanggalnya
+          pada PDF rapor.
         </p>
         {hasBlockers && (
           <p className="text-xs text-plum-500">

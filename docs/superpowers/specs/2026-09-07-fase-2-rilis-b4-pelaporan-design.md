@@ -125,6 +125,10 @@ model ReportCard {
 
   teacherNote String?
 
+  /// Amandemen 2026-09-09. Terisi hanya bila narasi diperbaiki SESUDAH
+  /// rapor terbit; dikembalikan ke null setiap penerbitan/penerbitan ulang.
+  teacherNoteUpdatedAt DateTime?
+
   status      ReportCardStatus @default(draft)
   publishedAt DateTime?
   publishedBy String?
@@ -264,7 +268,8 @@ menggandakan apa pun, dan draft yang sudah ada disegarkan angkanya.
 
 **Angka draft dihitung ulang setiap kali draft dibaca atau disusun ulang.**
 Selama masih `draft`, rapor mengikuti data di belakangnya. Begitu `published`,
-ia beku.
+**angkanya** beku. (Amandemen 2026-09-09: catatan guru dikecualikan dari
+pembekuan — lihat "Perbaikan catatan guru sesudah terbit" di bawah.)
 
 **Penerbitan** memeriksa gerbang sekali di level class group, lalu menghitung
 ulang seluruh draft dan membekukannya dalam **satu transaksi** — tidak ada
@@ -296,10 +301,44 @@ jalur normal.
 
 **Terbitkan ulang.** Endpoint yang sama, dijalankan pada class group yang sudah
 `published`, menghitung ulang dan membekukan versi baru — tapi hanya dengan
-`confirm: true` di body. Ini satu-satunya jalan isi rapor terbit berubah;
+`confirm: true` di body. Ini satu-satunya jalan **angka** rapor terbit berubah;
 mengoreksi nilai atau kehadiran di belakangnya tidak mengubah apa pun sampai
 admin sengaja menerbitkan ulang. `publishedAt` dan `publishedBy` diperbarui,
 dan penerbitan ulang dicatat ke `AuditLog`.
+
+**Perbaikan catatan guru sesudah terbit** *(amandemen 2026-09-09; keputusan
+pemilik)*. Versi pertama B4 membekukan rapor terbit seutuhnya, termasuk narasi
+guru. Konsekuensinya baru terlihat setelah rilis: salah ketik pada kalimat guru
+tidak punya jalur perbaikan sama sekali — tidak ada *unpublish*, dan penerbitan
+ulang hanya menghitung ulang angka, ia tidak pernah menawarkan penyuntingan
+teks. Padahal narasi adalah satu-satunya bagian rapor yang murni ditulis
+manusia; ia tidak diturunkan dari data mana pun, jadi "membekukannya agar
+konsisten dengan sumbernya" tidak berlaku untuknya.
+
+Karena itu `PATCH /api/report-cards/[id]` sekarang punya **dua jalur**:
+
+| Status rapor | Yang boleh diubah | Penjaga konkurensi |
+|---|---|---|
+| `draft` | `teacherNote`, `finalGradeOverride`, `overrideReason` | tulisan bersyarat `status: { not: published }` |
+| `published` | `teacherNote` **saja** | `SELECT … FOR UPDATE` + perbandingan teks di dalam transaksi |
+
+Payload berangka yang dikirim ke rapor terbit **ditolak** (skema `.strict()`),
+bukan diterima lalu diabaikan diam-diam: guru yang mengira baru saja mengubah
+nilai akhir harus mendengarnya saat itu juga.
+
+Perubahannya **tidak senyap**. Setiap suntingan mengisi kolom baru
+`ReportCard.teacherNoteUpdatedAt` dan menulis baris `AuditLog` beraksi
+`teacher_note_edit` (isi lama dan baru) dalam transaksi yang sama. PDF rapor
+mencantumkan "Catatan guru diperbaiki *tanggal*. Nilai dan kehadiran tidak
+berubah sejak diterbitkan", supaya orang tua yang memegang PDF lama tahu bahwa
+yang di tangannya bukan lagi teks terakhir. Menyimpan teks yang sama persis
+bukan suntingan dan tidak memasang penanda apa pun. Penerbitan (dan penerbitan
+ulang) mengembalikan `teacherNoteUpdatedAt` ke `null` — penanda itu berarti
+"diperbaiki sesudah penerbitan **terakhir**".
+
+Yang **tidak** diambil: jalur *unpublish*/tarik-kembali. Ia akan membuat angka
+rapor yang sudah dilihat orang tua bisa berubah lewat penerbitan ulang, yaitu
+persis yang dilarang kriteria penerimaan §8.
 
 **Notifikasi (BR-09).** Saat terbit, murid dan walinya menerima notifikasi
 in-app + email lewat `createNotifications` / `sendEventEmail` yang sudah ada,

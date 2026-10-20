@@ -24,6 +24,8 @@ export type ReportCardRow = {
   finalGradeOverride: number | null;
   overrideReason: string | null;
   teacherNote: string | null;
+  /** ISO. Terisi hanya bila narasi diperbaiki SESUDAH rapor terbit. */
+  teacherNoteUpdatedAt: string | null;
   averages: Array<{ criterionId: number; averageScore: number; sessionsScored: number }>;
 };
 
@@ -45,9 +47,14 @@ function CardEditor({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Rapor terbit hanya-baca: route memang menolak menyuntingnya, dan form
-  // yang tampak bisa diisi padahal pasti gagal hanya membuang waktu guru.
-  const readOnly = row.status === "published";
+  // Rapor terbit membekukan ANGKA-nya, bukan seluruh kartunya. Nilai akhir
+  // dan alasan timpaan jadi hanya-baca (route menolak menulisnya, dan form
+  // yang tampak bisa diisi padahal pasti gagal hanya membuang waktu guru),
+  // sementara catatan guru tetap bisa disunting — ia satu-satunya bagian
+  // rapor yang murni ditulis manusia, dan salah ketik di sana tidak punya
+  // jalur perbaikan lain: penerbitan ulang cuma menghitung ulang angka.
+  const published = row.status === "published";
+  const numbersLocked = published;
 
   // CATATAN state vs. router.refresh() (retro Task 4, layar penilaian
   // kohort butuh EMPAT ronde perbaikan karena useState di sini tidak pernah
@@ -55,20 +62,24 @@ function CardEditor({
   // useEffect penyerap-ulang seperti SessionCard tetangganya, dan itu aman
   // di layar ini — bukan diabaikan begitu saja. Bedanya dengan penilaian
   // kohort ada pada BENTUK payload-nya: save() di bawah selalu mengirim
-  // KETIGA field secara utuh (termasuk string kosong untuk "tidak ada
-  // catatan/timpaan"), tidak pernah mengosongkan field dengan cara
-  // TIDAK mengirimnya. Jadi begitu simpan berhasil, apa yang barusan
+  // field yang boleh diubah secara UTUH (termasuk string kosong untuk
+  // "tidak ada catatan/timpaan"), tidak pernah mengosongkan field dengan
+  // cara TIDAK mengirimnya. Jadi begitu simpan berhasil, apa yang barusan
   // dikirim ke server SAMA PERSIS dengan apa yang sudah ada di state lokal
   // ini, dan prop segar yang dibawa router.refresh() akan identik dengan
   // state saat ini — tidak ada nilai yang "menghilang" atau "muncul lagi"
   // seperti kasus sel nilai kosong di grade-form.ts. Satu-satunya jalan
   // field ini berubah di server adalah lewat PATCH ini sendiri, jadi tidak
   // ada sumber lain yang bisa membuat prop menyimpang dari state di antara
-  // dua refresh. Field yang BISA berubah lewat aksi lain (mis. "Susun ulang
-  // draft" mengubah attendancePct/finalGradeComputed, atau penerbitan
-  // mengubah status) sengaja TIDAK disalin ke state sama sekali — semuanya
-  // dibaca langsung dari `row` tiap render, sehingga otomatis segar setelah
-  // router.refresh() tanpa perlu efek tambahan apa pun.
+  // dua refresh. Pada rapor terbit payload-nya menyusut jadi teacherNote
+  // saja, dan alasannya sama persis: override/reason tidak dikirim KARENA
+  // tidak bisa diubah, bukan supaya dibiarkan — keduanya tetap hanya-baca
+  // di layar, jadi state-nya memang tidak akan pernah menyimpang dari prop.
+  // Field yang BISA berubah lewat aksi lain (mis. "Susun ulang draft"
+  // mengubah attendancePct/finalGradeComputed, penerbitan mengubah status,
+  // atau teacherNoteUpdatedAt yang ditulis server) sengaja TIDAK disalin ke
+  // state sama sekali — semuanya dibaca langsung dari `row` tiap render,
+  // sehingga otomatis segar setelah router.refresh() tanpa efek tambahan.
   async function save() {
     if (!row.reportCardId) return;
     setBusy(true);
@@ -82,12 +93,22 @@ function CardEditor({
       const res = await fetch(`/api/report-cards/${row.reportCardId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teacherNote: note,
-          // Kosong berarti "tidak ada timpaan", bukan nilai nol.
-          finalGradeOverride: override.trim() === "" ? null : Number(override),
-          overrideReason: reason,
-        }),
+        // Rapor terbit: HANYA teacherNote. Route-nya menilai badan ini
+        // dengan skema .strict(), jadi menyertakan finalGradeOverride
+        // "sekadar untuk lengkap" akan membuat seluruh permintaan ditolak —
+        // dan itu memang disengaja di sisi sana (lihat
+        // publishedReportCardNoteSchema).
+        body: JSON.stringify(
+          published
+            ? { teacherNote: note }
+            : {
+                teacherNote: note,
+                // Kosong berarti "tidak ada timpaan", bukan nilai nol.
+                finalGradeOverride:
+                  override.trim() === "" ? null : Number(override),
+                overrideReason: reason,
+              },
+        ),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -109,7 +130,7 @@ function CardEditor({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">{row.studentName}</CardTitle>
-          {readOnly && (
+          {published && (
             <div className="flex items-center gap-2">
               <Badge variant="secondary">Terbit</Badge>
               <span className="text-xs text-plum-500">
@@ -122,6 +143,19 @@ function CardEditor({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Aturan yang berlaku pada kartu ini, dikatakan di tempat guru
+            benar-benar bekerja — bukan hanya di dokumentasi. Sebelum ini,
+            layar sama sekali tidak memberi tahu bahwa penerbitan mengunci
+            apa pun; guru baru menemukannya saat formnya sudah mati. */}
+        {published && (
+          <div className="rounded-md border border-plum-200 bg-plum-50 px-3 py-2 text-sm text-plum-700">
+            Rapor ini sudah terbit. Nilai dan kehadirannya dibekukan — hanya
+            penerbitan ulang oleh admin yang bisa mengubahnya. Catatan guru
+            masih bisa diperbaiki, dan perbaikannya langsung ikut pada PDF
+            rapor yang diunduh orang tua.
+          </div>
+        )}
+
         <p className="text-sm text-plum-700">
           Kehadiran{" "}
           {row.attendancePct === null
@@ -166,9 +200,17 @@ function CardEditor({
             rows={3}
             placeholder="Catatan guru untuk murid dan orang tua"
             value={note}
-            disabled={readOnly || busy}
+            // SENGAJA tidak ikut terkunci saat rapor terbit — lihat komentar
+            // `numbersLocked` di atas.
+            disabled={busy}
             onChange={(e) => setNote(e.target.value)}
           />
+          {row.teacherNoteUpdatedAt && (
+            <p className="text-xs text-plum-500">
+              Terakhir diperbaiki setelah terbit:{" "}
+              {new Date(row.teacherNoteUpdatedAt).toLocaleString("id-ID")}
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -181,7 +223,7 @@ function CardEditor({
             min={0}
             max={100}
             value={override}
-            disabled={readOnly || busy}
+            disabled={numbersLocked || busy}
             onChange={(e) => setOverride(e.target.value)}
           />
         </div>
@@ -192,7 +234,7 @@ function CardEditor({
             <Input
               id={`reason-${row.studentId}`}
               value={reason}
-              disabled={readOnly || busy}
+              disabled={numbersLocked || busy}
               onChange={(e) => setReason(e.target.value)}
             />
           </div>
@@ -200,17 +242,22 @@ function CardEditor({
 
         <FormAlert message={error} />
 
-        {!readOnly && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || !row.reportCardId}
-            onClick={() => void save()}
-          >
-            {busy ? "Menyimpan…" : "Simpan"}
-          </Button>
-        )}
+        {/* Tombolnya ADA juga pada rapor terbit — labelnya yang berubah,
+            supaya guru tahu persis apa yang akan tersimpan dan tidak
+            mengira nilai akhirnya ikut terkirim. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || !row.reportCardId}
+          onClick={() => void save()}
+        >
+          {busy
+            ? "Menyimpan…"
+            : published
+              ? "Simpan catatan guru"
+              : "Simpan"}
+        </Button>
       </CardContent>
     </Card>
   );
@@ -218,8 +265,9 @@ function CardEditor({
 
 /**
  * Layar rapor kelas: satu kartu per murid, plus tombol untuk menyusun atau
- * menyegarkan draft (spec B4 §4.8). Rapor sudah TERBIT tampil hanya-baca —
- * lihat komentar `readOnly` di CardEditor.
+ * menyegarkan draft (spec B4 §4.8). Pada rapor yang sudah TERBIT, angkanya
+ * hanya-baca sedangkan catatan guru tetap bisa diperbaiki — lihat komentar
+ * `numbersLocked` di CardEditor.
  */
 export function ReportCardEditor({
   classGroupId,
@@ -290,6 +338,20 @@ export function ReportCardEditor({
         >
           {busy ? "Menyusun…" : "Susun / segarkan draft"}
         </Button>
+      </div>
+
+      {/* Dikatakan SEBELUM penerbitan, bukan sesudah. Guru berhak tahu apa
+          yang akan terkunci selagi ia masih bisa memperbaikinya — dan sama
+          pentingnya, tahu bahwa catatan gurunya TIDAK ikut terkunci,
+          supaya ia tidak menahan rapor sekelas hanya karena takut salah
+          ketik. */}
+      <div className="rounded-md border border-plum-200 bg-plum-50 px-3 py-2 text-sm text-plum-700">
+        <span className="font-semibold">Sebelum rapor diterbitkan:</span> begitu
+        admin menerbitkan, nilai dan kehadiran dibekukan — mengoreksi nilai
+        atau absensi setelah itu tidak lagi mengubah rapor, dan hanya
+        penerbitan ulang oleh admin yang bisa. Catatan guru dikecualikan:
+        ia tetap bisa diperbaiki kapan saja, dan perbaikannya ikut pada PDF
+        rapor sambil ditandai tanggalnya.
       </div>
 
       <FormAlert message={error} />
